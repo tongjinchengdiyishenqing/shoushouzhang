@@ -45,24 +45,26 @@
 
 ## 部署
 
-线上地址：**https://tongjinchengdiyishenqing.github.io/shoushouzhang/**
+线上地址：**https://book.yutiqu.eu.cc/**
+（备用：https://tongjinchengdiyishenqing.github.io/shoushouzhang/）
 
-- 托管在 GitHub Pages（仓库 `tongjinchengdiyishenqing/shoushouzhang`，分支 `main` 根目录）
-- 改完代码：双击 `deploy.ps1`，或在目录里 `git add -A; git commit -m "update"; git push`，30–60 秒后生效
-- 纯静态、无构建步骤，改了 CSS/JS 直接推就上线
+- 域名 `book.yutiqu.eu.cc` 是 Cloudflare 上的 CNAME（DNS only）→ `tongjinchengdiyishenqing.github.io`，HTTPS 由 GitHub Pages 自动签发（已开强制 HTTPS）
+- 内容托管在 GitHub Pages：仓库 `tongjinchengdiyishenqing/shoushouzhang`，`main` 分支根目录
+- 更新：双击 `deploy.ps1`。本机直连 `github.com:443` 会被重置，所以脚本走 `gh api`（`api.github.com` 可达），不用 git push
+- 纯静态、无构建步骤，改完 30–60 秒生效
 
-### 想绑自己的域名
+### 换域名 / 加子域
 
-1. 在仓库根目录加一个 `CNAME` 文件，内容只有一行：`你的域名`
-2. 到域名服务商加解析：
-   - 裸域（`example.com`）：4 条 A 记录指向 `185.199.108.153` / `185.199.109.153` / `185.199.110.153` / `185.199.111.153`
-   - 带 www：1 条 CNAME 指向 `tongjinchengdiyishenqing.github.io`
-3. 仓库 Settings → Pages → 勾上 Enforce HTTPS，等证书签发（几分钟到半小时）
+1. 在 Cloudflare（zone `yutiqu.eu.cc`）加一条 CNAME：`子域` → `tongjinchengdiyishenqing.github.io`，**代理状态先设 DNS only**
+2. 仓库根目录 `CNAME` 文件内容改成新域名，推上去
+3. GitHub 仓库 Settings → Pages → Custom domain 填同一个域名，等证书签发
+4. 证书签发后可以把 Cloudflare 那条记录切成橙云（代理）以走边缘加速，SSL 模式需为 Full
 
 ## 文件
 
 - `index.html` — 唯一入口，挂 `<div id="app" class="phone">`
 - `style.css` — 全部样式，设计变量在 `:root`
 - `app.js` — 全部逻辑：状态、种子数据、五个视图、键盘、事件委托、图标表（线稿 `ICONS` + 实心 `SOLID`）
-- `deploy.ps1` — 一键推送到线上
+- `deploy.ps1` — 一键发布（走 gh api）
+- `bind-domain.ps1` — 绑定自定义域名的一次性脚本
 - `favicon.svg` — 站点图标
