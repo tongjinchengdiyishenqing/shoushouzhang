@@ -43,8 +43,26 @@
 
 改整个视觉只动 `:root` 那 10 个变量；换强调色就改 `--accent` 一个值。
 
+## 部署
+
+线上地址：**https://tongjinchengdiyishenqing.github.io/shoushouzhang/**
+
+- 托管在 GitHub Pages（仓库 `tongjinchengdiyishenqing/shoushouzhang`，分支 `main` 根目录）
+- 改完代码：双击 `deploy.ps1`，或在目录里 `git add -A; git commit -m "update"; git push`，30–60 秒后生效
+- 纯静态、无构建步骤，改了 CSS/JS 直接推就上线
+
+### 想绑自己的域名
+
+1. 在仓库根目录加一个 `CNAME` 文件，内容只有一行：`你的域名`
+2. 到域名服务商加解析：
+   - 裸域（`example.com`）：4 条 A 记录指向 `185.199.108.153` / `185.199.109.153` / `185.199.110.153` / `185.199.111.153`
+   - 带 www：1 条 CNAME 指向 `tongjinchengdiyishenqing.github.io`
+3. 仓库 Settings → Pages → 勾上 Enforce HTTPS，等证书签发（几分钟到半小时）
+
 ## 文件
 
 - `index.html` — 唯一入口，挂 `<div id="app" class="phone">`
 - `style.css` — 全部样式，设计变量在 `:root`
 - `app.js` — 全部逻辑：状态、种子数据、五个视图、键盘、事件委托、图标表（线稿 `ICONS` + 实心 `SOLID`）
+- `deploy.ps1` — 一键推送到线上
+- `favicon.svg` — 站点图标
