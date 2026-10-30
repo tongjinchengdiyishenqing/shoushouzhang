@@ -1,182 +1,70 @@
-# AI 内容工厂（AI Content Factory）
+# 随手账
 
-一个基于 AI 的多平台内容自动生成与发布系统，支持小红书、微信公众号、今日头条、抖音等平台的内容自动化创作和定时发布。
+一个独立实现的本地记账应用。**和之前任何项目都没有代码关系**——独立目录、独立命名、独立设计语言、无框架无依赖。
 
-## 功能特性
+## 怎么打开
 
-- **AI 智能选题**：根据内容赛道自动生成热门选题
-- **多平台适配**：一篇内容自动适配小红书、公众号、头条、抖音等不同平台格式
-- **定时自动发布**：支持自定义发布计划，每日自动生成并发布内容
-- **多账号管理**：统一管理各平台账号，凭证加密存储
-- **内容赛道**：支持知识科普、情感励志、赚钱创业、生活方式四大赛道
-- **可视化管理**：现代化的 Web 管理界面
+双击 `index.html` 即可；手机上用浏览器打开也行。不需要环境、不需要联网、不需要后端。
 
-## 技术栈
+## 现在能做什么
 
-### 后端
-- Python 3.11+
-- FastAPI - 高性能 Web 框架
-- SQLAlchemy - ORM
-- SQLite - 数据库（可切换为 MySQL/PostgreSQL）
-- APScheduler - 任务调度
-- PyCryptodome - 加密模块
-- httpx - HTTP 客户端
+| 页面 | 功能 |
+|---|---|
+| **账本** | 全部账户余额、月度结余、近 6 个月支出柱状图（柱下带金额）、按日分组的流水、左右切换月份 |
+| **记一笔** | 支出/收入/转账三种方向；自绘数字键盘；分类宫格；账户选择；日期；备注；编辑与删除 |
+| **分析** | 支出/收入切换；笔数与日均；分类环形图 + 图例；分类明细（占比条 + 笔数） |
+| **资产** | 账户合计、资产构成条、各账户余额（期初 + 收入 − 支出）、口径说明 |
+| **设置** | 记录条数与占用空间、导出 JSON 备份、清空重来 |
 
-### 前端
-- React 18 + TypeScript
-- Vite - 构建工具
-- Tailwind CSS - 样式框架
-- React Router v6 - 路由
-- Axios - HTTP 客户端
-- Lucide React - 图标库
+## 数据
 
-### AI 服务
-- DeepSeek - LLM（默认）
-- 豆包/火山引擎 - LLM + 图片生成
-- 可扩展的 Provider 架构
+- 全部在浏览器 `localStorage`，key = `sz.book.v5`
+- 金额一律用**整数分**（`cents`）存储，避免浮点误差
+- 换设备不同步（要同步得做账号体系 + 后端）
+- 设置页可导出 JSON，自己留底
 
-## 快速开始
+## 设计语言：墨 + 单色数据 + 一个强调色
 
-### 环境要求
-- Python 3.11+
-- Node.js 18+
-- npm 或 yarn
+一句话：**结构用黑白灰，数据用同一色相的明度阶梯，全站只有一个彩色（砖橙 `#d0532c`）**。所谓"高级感"来自字号层级、留白和圆角，不来自彩色分类和分割线。
 
-### 1. 克隆项目
-```bash
-cd ai-content-factory
-```
+| 原则 | 落地 |
+|---|---|
+| **颜色只有四个角色** | 墨 `#0e0e10`（正文/主柱/环首段）、三档灰 `#6a6a72` `#a8a8b0` `#ededf1`、浅底 `#f5f5f7`；**强调色只有一个** `--accent #d0532c`（当月柱、当月文字）；语义色两个 `--pos #1e7a58` 收入、`--neg #c0453c` 超支/负数。除此之外全页没有第五种颜色 |
+| **分类不上色** | 13 个分类统一灰圆 + 墨色线稿，靠图标形状区分，不靠彩虹色。这是上一版"土"的根源 |
+| **数据可视化走单色阶梯** | 环形图 6 档：`#0e0e10 → #3c3c44 → #6a6a72 → #9a9aa2 → #c4c4cc → #e2e2e8`；资产构成条同理。颜色深浅本身就是排序信息 |
+| **字体** | `PingFang SC → HarmonyOS Sans SC → MiSans → Microsoft YaHei → Noto Sans SC`。**不写 DengXian（等线）**：Windows 上没有前几个会落到等线，中文又细又飘 |
+| **字号拉满对比** | 主金额 44px/700（字距 −1.9px）、页面标题 24px/700、分组标签 12px/700 灰、正文 15px/600、说明 12px/500。中间不留过渡档，层级才立得住 |
+| **不用卡片、少画线** | 全站没有边框、阴影、卡片底色；流水行**没有分割线**，靠 62px 行高与日期条分组；只有表单行和底栏保留 1px 线 |
+| **留白是主要装饰** | 页面左右 22px、区块间距 26–30px、图标圆 38–46px、柱图区 140px 高 |
+| **圆角** | 柱 7px、图标圆 50%、按钮与 toast 999px。圆角只有三种，不混用 |
+| **月度柱状图（自研）** | 只画支出：柱高 = 当月支出 / 上限，当月柱用砖橙，超支（支出 > 收入）整根变红；刻度只标右上角「上限 X」；x 轴两行「月份 / 当月支出金额」，当月加粗。不画虚线网格、不做双色并排 |
+| **环形图** | 148px + 右侧圆点图例（灰色阶梯 + 类别 + 占比），中心只写"N 类"；超出 6 类并成「其他」 |
+| **轻动效** | 页面切换 240ms 淡入、柱状图逐根从底部生长（每根错开 50ms）、环形图淡入；`prefers-reduced-motion` 下全部关掉 |
 
-### 2. 后端配置
-```bash
-cd backend
+改整个视觉只动 `:root` 那 10 个变量；换强调色就改 `--accent` 一个值。
 
-# 安装依赖
-pip install -r requirements.txt
+## 部署
 
-# 配置环境变量
-cp .env.example .env
-# 编辑 .env 文件，配置 LLM API Key 等
+线上地址：**https://book.yutiqu.eu.cc/**
+（备用：https://tongjinchengdiyishenqing.github.io/shoushouzhang/）
 
-# 启动后端服务
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
+- 域名 `book.yutiqu.eu.cc` 是 Cloudflare 上的 CNAME（DNS only）→ `tongjinchengdiyishenqing.github.io`，HTTPS 由 GitHub Pages 自动签发（已开强制 HTTPS）
+- 内容托管在 GitHub Pages：仓库 `tongjinchengdiyishenqing/shoushouzhang`，`main` 分支根目录
+- 更新：双击 `deploy.ps1`。本机直连 `github.com:443` 会被重置，所以脚本走 `gh api`（`api.github.com` 可达），不用 git push
+- 纯静态、无构建步骤，改完 30–60 秒生效
 
-后端 API 文档：http://localhost:8000/docs
+### 换域名 / 加子域
 
-### 3. 前端配置
-```bash
-cd frontend
+1. 在 Cloudflare（zone `yutiqu.eu.cc`）加一条 CNAME：`子域` → `tongjinchengdiyishenqing.github.io`，**代理状态先设 DNS only**
+2. 仓库根目录 `CNAME` 文件内容改成新域名，推上去
+3. GitHub 仓库 Settings → Pages → Custom domain 填同一个域名，等证书签发
+4. 证书签发后可以把 Cloudflare 那条记录切成橙云（代理）以走边缘加速，SSL 模式需为 Full
 
-# 安装依赖
-npm install
+## 文件
 
-# 启动开发服务器
-npm run dev
-```
-
-前端访问地址：http://localhost:5173
-
-### 4. 默认登录
-- 用户名：`admin`
-- 密码：`admin123`
-
-## 项目结构
-
-```
-.
-├── backend/                 # 后端代码
-│   ├── app/
-│   │   ├── api/            # API 路由层
-│   │   ├── models/         # 数据模型
-│   │   ├── schemas/        # Pydantic Schema
-│   │   ├── services/       # 业务服务
-│   │   ├── providers/      # AI Provider 抽象层
-│   │   ├── scheduler/      # 任务调度
-│   │   ├── utils/          # 工具函数
-│   │   ├── config.py       # 配置
-│   │   ├── database.py     # 数据库
-│   │   └── main.py         # 应用入口
-│   ├── requirements.txt    # Python 依赖
-│   └── .env.example        # 环境变量示例
-├── frontend/               # 前端代码
-│   ├── src/
-│   │   ├── api/            # API 调用
-│   │   ├── pages/          # 页面组件
-│   │   ├── components/     # 公共组件
-│   │   ├── layouts/        # 布局组件
-│   │   └── store/          # 状态管理
-│   ├── package.json
-│   └── tailwind.config.js
-└── README.md
-```
-
-## API 概览
-
-| 模块 | 端点 | 说明 |
-|------|------|------|
-| 认证 | `POST /api/v1/auth/login` | 用户登录 |
-| 内容 | `GET /api/v1/contents` | 内容列表 |
-| 内容 | `POST /api/v1/contents/generate` | AI 生成内容 |
-| 内容 | `GET/PUT/DELETE /api/v1/contents/{id}` | 内容详情/更新/删除 |
-| 账号 | `GET /api/v1/accounts` | 账号列表 |
-| 账号 | `POST /api/v1/accounts` | 创建账号 |
-| 账号 | `POST /api/v1/accounts/{id}/test` | 测试账号 |
-| 发布计划 | `GET /api/v1/schedules` | 计划列表 |
-| 发布计划 | `POST /api/v1/schedules` | 创建计划 |
-| 发布计划 | `POST /api/v1/schedules/{id}/toggle` | 启停计划 |
-| 发布记录 | `GET /api/v1/publish/records` | 发布记录 |
-| 系统 | `GET /api/v1/system/stats` | 系统统计 |
-
-## 配置说明
-
-### 环境变量（backend/.env）
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `APP_NAME` | 应用名称 | AI Content Factory |
-| `APP_ENV` | 运行环境 | development |
-| `DATABASE_URL` | 数据库连接 | sqlite:///./content_factory.db |
-| `SECRET_KEY` | 加密密钥 | 请修改为随机字符串 |
-| `ENCRYPTION_KEY` | 凭证加密密钥 | 请修改为32位字符串 |
-| `ADMIN_USERNAME` | 管理员用户名 | admin |
-| `ADMIN_PASSWORD` | 管理员密码 | admin123 |
-| `LLM_PROVIDER` | LLM 服务商 | deepseek |
-| `LLM_API_KEY` | LLM API Key | - |
-| `LLM_BASE_URL` | LLM API 地址 | https://api.deepseek.com/v1 |
-| `LLM_MODEL` | LLM 模型 | deepseek-chat |
-| `IMAGE_PROVIDER` | 图片生成服务商 | doubao |
-| `IMAGE_API_KEY` | 图片 API Key | - |
-
-## 支持的内容赛道
-
-1. **知识科普** - 冷知识、科学现象、历史故事、生活百科、心理学、宇宙探索
-2. **情感励志** - 情感故事、人生感悟、励志语录、成长思考、人际关系、自我提升
-3. **赚钱创业** - 副业思路、创业故事、财富思维、职场提升、投资理财、商业洞察
-4. **生活方式** - 美食推荐、旅行攻略、穿搭技巧、家居好物、健康生活、效率工具
-
-## 支持的平台
-
-- **小红书** - 图文笔记格式
-- **微信公众号** - 长文格式
-- **今日头条** - 文章格式
-- **抖音** - 短视频文案+脚本
-
-## 使用流程
-
-1. **配置 AI 服务**：在 `backend/.env` 中配置 LLM API Key
-2. **添加平台账号**：在「账号管理」中添加各平台账号
-3. **创建发布计划**：在「发布计划」中设置内容赛道、发布时间、目标平台
-4. **启动自动创作**：启用发布计划，系统将每日自动生成内容并发布
-5. **查看效果**：在「发布记录」中查看发布状态和数据
-
-## 注意事项
-
-- MVP 阶段发布功能为模拟实现，真实发布需要对接各平台 API
-- 图片生成功能为占位实现，后续可接入真实的图片生成服务
-- 请妥善保管 API Key 和加密密钥，不要提交到公开仓库
-- 生产环境请修改默认的管理员密码和加密密钥
-
-## 许可证
-
-MIT License
+- `index.html` — 唯一入口，挂 `<div id="app" class="phone">`
+- `style.css` — 全部样式，设计变量在 `:root`
+- `app.js` — 全部逻辑：状态、种子数据、五个视图、键盘、事件委托、图标表（线稿 `ICONS` + 实心 `SOLID`）
+- `deploy.ps1` — 一键发布（走 gh api）
+- `bind-domain.ps1` — 绑定自定义域名的一次性脚本
+- `favicon.svg` — 站点图标
