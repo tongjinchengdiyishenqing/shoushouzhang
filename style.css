@@ -257,7 +257,7 @@ html, body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.entry .body { flex: 1; min-width: 0; }
+.entry .body { flex: 1; min-width: 0; overflow: hidden; }
 .entry .title {
   font-size: 16px;
   font-weight: 600;
@@ -273,6 +273,8 @@ html, body {
   margin-top: 3px;
   font-size: 13px;
   color: var(--ink-3);
+  min-width: 0;
+  overflow: hidden;
 }
 .entry .meta span + span::before {
   content: "·";
@@ -808,6 +810,95 @@ html, body {
   border-radius: 3px;
   background: var(--ink);
 }
+
+/* 报价状态行 */
+.quote-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.quote-refresh {
+  color: var(--ink);
+  font-weight: 600;
+  padding: 2px 0 2px 12px;
+  cursor: pointer;
+}
+.quote-refresh:active { opacity: 0.5; }
+
+/* 持仓行：左右两行对齐，避免长文本互相挤压 */
+.hrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px var(--pad);
+  cursor: pointer;
+}
+.hrow:active { background: var(--paper-2); }
+.hrow .glyph {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink);
+}
+.hrow .glyph svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hrow .hmain { flex: 1; min-width: 0; }
+.hrow .hline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hrow .hline + .hline { margin-top: 5px; }
+.hrow .nm {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hrow .mv {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+.hrow .sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hrow .pnl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.hrow .pnl.up { color: var(--pos); }
+.hrow .pnl.down { color: var(--neg); }
 
 /* ---------- 设置 ---------- */
 .list-row {
