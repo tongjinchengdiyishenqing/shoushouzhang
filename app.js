@@ -32,7 +32,9 @@
       { id: "t_side", name: "外快", glyph: "🛠", flow: "in", seq: 4, color: "#72609C", tint: "#EFEDF7" },
       { id: "t_gift", name: "收礼", glyph: "🧧", flow: "in", seq: 5, color: "#C4557A", tint: "#FAECF1" }
     ],
-    entries: []
+    entries: [],
+    /* 持仓：股数可以是小数（基金），价格一律用整数分 */
+    holdings: []
   };
 
   function seed() {
@@ -117,10 +119,11 @@
       db = {
         wallets: raw.wallets && raw.wallets.length ? raw.wallets : DEFAULTS.wallets.slice(),
         tags: mergeTags(raw.tags),
-        entries: raw.entries
+        entries: raw.entries,
+        holdings: Array.isArray(raw.holdings) ? raw.holdings : []
       };
     } else {
-      db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: seed() };
+      db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: seed(), holdings: [] };
       save();
     }
   }
@@ -278,7 +281,12 @@
     memo: "",
     draft: "",
     statsFlow: "out",
-    statsSpan: 6
+    statsSpan: 6,
+    /* 持仓录入表单的暂存值 */
+    hCode: "",
+    hName: "",
+    hShares: "",
+    hCost: ""
   };
 
   function viewBook() {
@@ -363,11 +371,28 @@
           (delta >= 0 ? "+" : "-") + "¥" + money(Math.abs(delta)) + "</b></div>" +
       "</div>";
 
+    // 年度汇总：跟随当前月份导航所在年，口径与 summarize 一致（转账不计收支）
+    var yearKey = parts[0];
+    var yearOut = 0, yearIn = 0, yearCount = 0;
+    db.entries.forEach(function (e) {
+      if (String(e.day).slice(0, 4) !== yearKey) return;
+      yearCount++;
+      if (e.flow === "out") yearOut += e.cents;
+      else if (e.flow === "in") yearIn += e.cents;
+    });
+    var yearCard =
+      '<div class="card"><div class="card-title">' + esc(yearKey) + " 年汇总</div>" +
+        '<div class="list-row"><span>收入</span><span class="hint" style="color:var(--pos)">+¥' + money(yearIn) + "</span></div>" +
+        '<div class="list-row"><span>支出</span><span class="hint">−¥' + money(yearOut) + "</span></div>" +
+        '<div class="list-row"><span>结余</span><span class="hint">' + cash(yearIn - yearOut) + "</span></div>" +
+        '<div class="list-row"><span>笔数</span><span class="hint">' + yearCount + " 笔</span></div>" +
+      "</div>";
+
     var listHtml = s.list.length
       ? groupEntries(s.list)
       : '<div class="empty"><span class="big-emoji">🪶</span>这个月还是空白，点右下角记一笔</div>';
 
-    return head + chart + listHtml;
+    return head + chart + yearCard + listHtml;
   }
 
   function groupEntries(list) {
@@ -394,6 +419,7 @@
             "</div>" +
             '<div class="amt ' + (e.flow === "in" ? "in" : "out") + '">' +
               (e.flow === "in" ? "+" : "-") + money(e.cents) +
+              (e.origin === "csv" ? '<span class="csv-tag">导入</span>' : "") +
             "</div>" +
           "</div>"
         );
@@ -662,10 +688,167 @@
         '<div class="cell"><i>本月支出</i><b>¥' + money(summarize(ui.month).out) + "</b></div></div>" +
       "</div>" +
       allocBar +
+      (function () {
+        // 持仓 + 全景入口：只算一次，避免重复遍历
+        var hs = holdingStats();
+        var yf = yearFlow(ui.month.slice(0, 4));
+        var cover = yf.out > 0 ? Math.round((yf.div / yf.out) * 100) : 0;
+        return '<div class="card"><div class="card-title">钱生钱</div>' +
+          '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
+            '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
+          '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
+            '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
+        "</div>";
+      })() +
       '<div class="card"><div class="card-title">明细</div>' + rows + "</div>" +
       '<div class="card"><div class="card-title">说明</div>' +
         '<div class="list-row"><span>余额口径</span><span class="hint">期初 + 收入 − 支出</span></div>' +
         '<div class="list-row"><span>转账</span><span class="hint">只做账户间搬移，不计收支</span></div>' +
+      "</div>"
+    );
+  }
+
+  /* ================= 视图：持仓 ================= */
+
+  function fmtShares(n) {
+    var v = Number(n) || 0;
+    return v % 1 === 0 ? String(v) : v.toFixed(2);
+  }
+
+  /* 持仓统一口径：没拉到报价的，用成本价当现价，并在行上标「待更新」 */
+  function holdingStats() {
+    var list = (db.holdings || []).map(function (h) {
+      var price = h.priceCents != null ? h.priceCents : h.costCents;
+      var mv = Math.round(h.shares * price);
+      var cost = Math.round(h.shares * h.costCents);
+      return {
+        id: h.id, code: h.code, name: h.name || h.code, shares: h.shares,
+        costCents: h.costCents, priceCents: price,
+        mv: mv, cost: cost, pnl: mv - cost,
+        pnlPct: cost ? ((mv - cost) / cost) * 100 : 0,
+        stale: h.priceCents == null
+      };
+    });
+    var mv = 0, cost = 0;
+    list.forEach(function (x) { mv += x.mv; cost += x.cost; });
+    return {
+      list: list, mv: mv, cost: cost, pnl: mv - cost,
+      pnlPct: cost ? ((mv - cost) / cost) * 100 : 0
+    };
+  }
+
+  /* 某一年的收入 / 支出 / 分红收入 */
+  function yearFlow(yearKey) {
+    var inc = 0, out = 0, div = 0;
+    db.entries.forEach(function (e) {
+      if (String(e.day).slice(0, 4) !== yearKey) return;
+      if (e.flow === "out") out += e.cents;
+      else if (e.flow === "in") {
+        inc += e.cents;
+        if (e.tagId === "t_div") div += e.cents;
+      }
+    });
+    return { inc: inc, out: out, div: div };
+  }
+
+  function viewHoldings() {
+    var s = holdingStats();
+
+    var rows = s.list.length
+      ? s.list.map(function (x) {
+          return '<div class="entry" data-act="delHolding" data-id="' + esc(x.id) + '">' +
+            '<div class="glyph">' + iconOf("w_fund") + "</div>" +
+            '<div class="body">' +
+              '<div class="title">' + esc(x.name) + "</div>" +
+              '<div class="meta"><span>' + esc(x.code) + "</span>" +
+                "<span>" + fmtShares(x.shares) + " 股 @" + money(x.costCents) + "</span>" +
+              "</div>" +
+            "</div>" +
+            '<div class="amt">' + cash(x.mv) +
+              '<span class="amt-note ' + (x.pnl > 0 ? "up" : x.pnl < 0 ? "down" : "") + '">' +
+                (x.stale ? "待更新报价" :
+                  (x.pnl >= 0 ? "+" : "") + money(x.pnl) + "（" + (x.pnlPct >= 0 ? "+" : "") + x.pnlPct.toFixed(1) + "%）") +
+              "</span>" +
+            "</div>" +
+          "</div>";
+        }).join("")
+      : '<div class="empty">还没有持仓，下面加一只</div>';
+
+    var head =
+      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>持仓</h1><div class="icon-btn"></div></div>' +
+      '<div class="hero">' +
+        '<div class="label">持仓市值</div>' +
+        '<div class="big"><span class="cur">¥</span>' + money(s.mv) + "</div>" +
+        '<div class="delta ' + (s.pnl < 0 ? "down" : s.pnl > 0 ? "up" : "") + '">持仓盈亏 <b>' +
+          (s.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(s.pnl)) + "（" +
+          (s.pnlPct >= 0 ? "+" : "") + s.pnlPct.toFixed(1) + "%）</b></div>" +
+      "</div>";
+
+    var form =
+      '<div class="card"><div class="card-title">加一只</div>' +
+        '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="600519.SH" value="' + esc(ui.hCode) + '"></div>' +
+        '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="可不填" value="' + esc(ui.hName) + '"></div>' +
+        '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
+        '<div class="field-row"><label>成本价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="1500.00" value="' + esc(ui.hCost) + '"></div>' +
+      "</div>" +
+      '<button class="btn-primary" data-act="addHolding">添加持仓</button>' +
+      '<div class="card"><div class="card-title">说明</div>' +
+        '<div class="list-row"><span>同一代码重复添加</span><span class="hint">按加权平均合并成本</span></div>' +
+        '<div class="list-row"><span>点一行</span><span class="hint">删除这只</span></div>' +
+      "</div>";
+
+    return head + '<div class="card"><div class="card-title">明细</div>' + rows + "</div>" + form;
+  }
+
+  /* ================= 视图：财务全景 ================= */
+
+  function viewOverview() {
+    var yearKey = ui.month.slice(0, 4);
+    var y = yearFlow(yearKey);
+    var hs = holdingStats();
+    var bal = walletBalances();
+    var cashTotal = db.wallets.reduce(function (a, w) { return a + (bal[w.id] || 0); }, 0);
+    var netWorth = cashTotal + hs.mv;
+    var cover = y.out > 0 ? (y.div / y.out) * 100 : 0;
+    var months = y.out > 0 ? y.div / (y.out / 12) : 0;
+    var barW = Math.min(100, cover);
+
+    var coverDesc;
+    if (y.out <= 0) coverDesc = "今年还没有支出记录";
+    else if (cover <= 0) coverDesc = "今年还没有分红到账，去「记一笔」记成股息";
+    else if (cover < 50) coverDesc = "分红能覆盖 " + months.toFixed(1) + " 个月生活费";
+    else if (cover < 100) coverDesc = "分红能覆盖 " + months.toFixed(1) + " 个月，超过半年了";
+    else coverDesc = "分红已覆盖全年支出，多出 ¥" + money(y.div - y.out);
+
+    return (
+      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>财务全景</h1><div class="icon-btn"></div></div>' +
+      '<div class="hero">' +
+        '<div class="label">净资产 · ' + esc(yearKey) + " 年</div>" +
+        '<div class="big"><span class="cur">¥</span>' + money(netWorth) + "</div>" +
+        '<div class="delta">现金 ¥' + money(cashTotal) + "　持仓 ¥" + money(hs.mv) + "</div>" +
+      "</div>" +
+      '<div class="card"><div class="card-title">股息覆盖率</div>' +
+        '<div class="cover">' +
+          '<div class="cover-num">' + cover.toFixed(0) + "<span>%</span></div>" +
+          '<div class="cover-desc">' + coverDesc + "</div>" +
+          '<div class="track"><i style="width:' + barW.toFixed(1) + '%"></i></div>' +
+        "</div>" +
+        '<div class="list-row"><span>年度分红收入</span><span class="hint" style="color:var(--pos)">+¥' + money(y.div) + "</span></div>" +
+        '<div class="list-row"><span>年度生活支出</span><span class="hint">¥' + money(y.out) + "</span></div>" +
+        '<div class="list-row"><span>年度总收入</span><span class="hint">+¥' + money(y.inc) + "</span></div>" +
+        '<div class="list-row"><span>年度结余</span><span class="hint">' + cash(y.inc - y.out) + "</span></div>" +
+      "</div>" +
+      '<div class="card"><div class="card-title">持仓</div>' +
+        '<div class="list-row"><span>持仓市值</span><span class="hint">¥' + money(hs.mv) + "</span></div>" +
+        '<div class="list-row"><span>持仓成本</span><span class="hint">¥' + money(hs.cost) + "</span></div>" +
+        '<div class="list-row"><span>浮动盈亏</span><span class="hint" style="color:' + (hs.pnl >= 0 ? "var(--pos)" : "var(--neg)") + '">' +
+          (hs.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(hs.pnl)) + "</span></div>" +
+        '<div class="list-row" data-act="goHoldings"><span>管理持仓</span><span class="hint">' + hs.list.length + " 只 ›</span></div>" +
+      "</div>" +
+      '<div class="card"><div class="card-title">口径</div>' +
+        '<div class="list-row"><span>净资产</span><span class="hint">账户余额 + 持仓市值</span></div>' +
+        '<div class="list-row"><span>分红收入</span><span class="hint">流水里标签为「股息」的收入</span></div>' +
+        '<div class="list-row"><span>生活支出</span><span class="hint">不含转账</span></div>' +
       "</div>"
     );
   }
@@ -681,6 +864,8 @@
         '<div class="list-row"><span>记录条数</span><span class="hint">' + db.entries.length + " 条</span></div>" +
         '<div class="list-row"><span>占用空间</span><span class="hint">' + (size / 1024).toFixed(1) + " KB</span></div>" +
         '<div class="list-row" data-act="exportData"><span>导出备份</span><span class="hint">下载 JSON ›</span></div>' +
+        '<div class="list-row" data-act="exportCsv"><span>导出 CSV</span><span class="hint">Excel 可打开 ›</span></div>' +
+        '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从文件恢复 ›</span></div>' +
         '<div class="list-row" data-act="resetData"><span>清空重来</span><span class="hint">全部记录与账户重置 ›</span></div>' +
       "</div>" +
       '<div class="card"><div class="card-title">关于</div>' +
@@ -721,14 +906,18 @@
     if (r.view === "entry") body = viewEntry(r.params);
     else if (r.view === "stats") body = viewStats();
     else if (r.view === "assets") body = viewAssets();
+    else if (r.view === "holdings") body = viewHoldings();
+    else if (r.view === "overview") body = viewOverview();
     else if (r.view === "config") body = viewConfig();
     else body = viewBook();
 
     var isEntry = r.view === "entry";
+    // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
+    var activeKey = (r.view === "holdings" || r.view === "overview") ? "assets" : r.view;
     var tabs = isEntry
       ? ""
       : '<nav class="tabbar">' + TABS.map(function (t) {
-          return '<a class="tab ' + (t.key === r.view ? "on" : "") + '" href="' + t.href + '">' +
+          return '<a class="tab ' + (t.key === activeKey ? "on" : "") + '" href="' + t.href + '">' +
             '<span class="ic">' + iconSolid(t.ic) + "</span><span>" + t.name + "</span></a>";
         }).join("") + "</nav>";
 
@@ -831,9 +1020,383 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
 
+  /* ================= CSV 导入 / 导出 =================
+     导出的列固定为 日期,方向,金额,分类,账户,备注（金额单位元，两位小数）。
+     导入按表头别名识别列，逐行校验，失败的行集中报出来，不静默丢。 */
+
+  var CSV_HEAD = {
+    day: ["日期", "date", "day", "时间", "交易时间"],
+    flow: ["方向", "flow", "type", "收支", "类型"],
+    cents: ["金额", "amount", "money", "金额(元)", "金额（元）", "交易金额"],
+    tag: ["分类", "category", "tag", "类别", "标签"],
+    wallet: ["账户", "account", "wallet", "支付方式", "账户(卡)"],
+    memo: ["备注", "memo", "note", "remark", "说明"]
+  };
+
+  var TAG_ALIAS = {
+    "餐饮": "t_food", "伙食": "t_food", "外卖": "t_food", "吃": "t_food",
+    "交通": "t_car", "车费": "t_car", "打车": "t_car",
+    "日用": "t_buy", "网购": "t_buy",
+    "房租": "t_home", "住房": "t_home", "居住": "t_home", "水电": "t_home",
+    "娱乐": "t_fun", "电影": "t_fun", "游戏": "t_fun",
+    "医疗": "t_med", "药": "t_med", "健康": "t_med",
+    "教育": "t_study", "课程": "t_study",
+    "其他": "t_misc", "其它": "t_misc", "杂费": "t_misc",
+    "薪水": "t_pay", "薪资": "t_pay",
+    "分红": "t_div", "利息": "t_int",
+    "兼职": "t_side", "红包": "t_gift", "礼金": "t_gift"
+  };
+
+  var WALLET_ALIAS = {
+    "微信": "w_pay", "微信支付": "w_pay", "支付宝": "w_pay", "花呗": "w_pay", "零钱通": "w_pay",
+    "钱包": "w_cash", "零钱": "w_cash",
+    "银行": "w_bank", "银行卡": "w_bank", "信用卡": "w_bank", "借记卡": "w_bank",
+    "股票": "w_fund", "基金": "w_fund", "证券": "w_fund", "投资": "w_fund"
+  };
+
+  function csvCell(v) {
+    var s = String(v == null ? "" : v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function flowName(f) {
+    return f === "in" ? "收入" : f === "move" ? "转账" : "支出";
+  }
+
+  function exportCsv() {
+    if (!db.entries.length) { toast("还没有记录"); return; }
+    var rows = db.entries.slice().sort(function (a, b) {
+      if (a.day !== b.day) return a.day < b.day ? -1 : 1;
+      return (a.at || 0) - (b.at || 0);
+    });
+    var lines = [["日期", "方向", "金额", "分类", "账户", "备注"]];
+    rows.forEach(function (e) {
+      var t = tagById(e.tagId);
+      var w = walletById(e.walletId);
+      var acc = w.name;
+      if (e.flow === "move") acc = w.name + "→" + walletById(e.toWalletId).name;
+      lines.push([e.day, flowName(e.flow), (e.cents / 100).toFixed(2), t.name, acc, e.memo || ""]);
+    });
+    var text = "\uFEFF" + lines.map(function (r) {
+      return r.map(csvCell).join(",");
+    }).join("\r\n");
+    var blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "随手账_" + ymd(new Date()).replace(/-/g, "") + ".csv";
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    toast("已导出 " + db.entries.length + " 条");
+  }
+
+  /* 逐字符解析，支持引号包裹的逗号、换行和转义引号 */
+  function parseCsvText(text) {
+    var rows = [], row = [], cell = "", inQuote = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (inQuote) {
+        if (ch === '"') {
+          if (text.charAt(i + 1) === '"') { cell += '"'; i++; }
+          else inQuote = false;
+        } else cell += ch;
+      } else if (ch === '"') inQuote = true;
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\r") { /* 等 \n */ }
+      else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) {
+      return r.some(function (c) { return String(c).trim() !== ""; });
+    });
+  }
+
+  function mapHeader(row) {
+    var idx = {};
+    row.forEach(function (h, i) {
+      var name = String(h || "").replace(/^\uFEFF/, "").trim().toLowerCase();
+      Object.keys(CSV_HEAD).forEach(function (k) {
+        if (idx[k] != null) return;
+        for (var j = 0; j < CSV_HEAD[k].length; j++) {
+          if (CSV_HEAD[k][j].toLowerCase() === name) { idx[k] = i; return; }
+        }
+      });
+    });
+    return idx;
+  }
+
+  function normDay(raw) {
+    var t = String(raw || "").trim()
+      .replace(/[./年月]/g, "-").replace(/日/g, "").replace(/\s+/g, "");
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3];
+    var dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    return y + "-" + pad(mo) + "-" + pad(d);
+  }
+
+  function normCents(raw) {
+    var t = String(raw || "").replace(/[¥￥,\s]/g, "");
+    if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+    var v = parseFloat(t);
+    if (!isFinite(v) || v <= 0) return null;
+    return Math.round(v * 100);
+  }
+
+  function normFlow(raw) {
+    var t = String(raw || "").trim().toLowerCase();
+    if (/支出|expense|out|pay|花/.test(t)) return "out";
+    if (/收入|income|^in$|收/.test(t)) return "in";
+    if (/转账|transfer|move|转/.test(t)) return "move";
+    return null;
+  }
+
+  function matchTag(name) {
+    var n = String(name || "").trim();
+    if (!n) return null;
+    var exact = db.tags.filter(function (t) { return t.name === n; })[0];
+    if (exact) return exact;
+    if (TAG_ALIAS[n]) {
+      var hit = db.tags.filter(function (t) { return t.id === TAG_ALIAS[n]; })[0];
+      if (hit) return hit;
+    }
+    // 再退一步：按关键词模糊认（"餐饮美食"→吃饭，"超市"→购物）
+    var KEYS = [
+      ["t_food", /餐|饭|吃|外卖|food/i],
+      ["t_car", /交通|地铁|公交|打车|车费|油|car|taxi/i],
+      ["t_buy", /购物|网购|日用|超市|买|buy|shop/i],
+      ["t_home", /房租|住房|物业|水电|租金|home|rent/i],
+      ["t_fun", /娱乐|电影|游戏|玩|fun|movie/i],
+      ["t_med", /医|药|看病|体检|med/i],
+      ["t_study", /学习|教育|课程|书|study|book/i],
+      ["t_misc", /其他|其它|杂|misc/i],
+      ["t_pay", /工资|薪|salary|payroll/i],
+      ["t_div", /股息|分红|dividend/i],
+      ["t_int", /利息|interest/i],
+      ["t_side", /外快|兼职|side/i],
+      ["t_gift", /红包|礼|gift/i]
+    ];
+    for (var i = 0; i < KEYS.length; i++) {
+      if (KEYS[i][1].test(n)) {
+        var t2 = db.tags.filter(function (t) { return t.id === KEYS[i][0]; })[0];
+        if (t2) return t2;
+      }
+    }
+    return null;
+  }
+
+  function matchWallet(name) {
+    var n = String(name || "").trim();
+    if (!n) return null;
+    var exact = db.wallets.filter(function (w) { return w.name === n; })[0];
+    if (exact) return exact;
+    if (WALLET_ALIAS[n]) {
+      var hit = db.wallets.filter(function (w) { return w.id === WALLET_ALIAS[n]; })[0];
+      if (hit) return hit;
+    }
+    // "招商银行""工行卡"这类具体银行名，按关键词归到储蓄卡
+    var KEYS = [
+      ["w_cash", /现金|现钞|钱包/],
+      ["w_pay", /微信|支付宝|花呗|零钱通|pay|alipay/i],
+      ["w_bank", /银行|卡|储蓄|信用|bank/i],
+      ["w_fund", /股票|基金|证券|投资|fund|stock/i]
+    ];
+    for (var i = 0; i < KEYS.length; i++) {
+      if (KEYS[i][1].test(n)) {
+        var w2 = db.wallets.filter(function (w) { return w.id === KEYS[i][0]; })[0];
+        if (w2) return w2;
+      }
+    }
+    return null;
+  }
+
+  function importCsv() {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onerror = function () { toast("文件读取失败"); };
+      reader.onload = function () {
+        var text = String(reader.result || "");
+        if (text.indexOf("\uFFFD") >= 0) {
+          // Excel 存的 ANSI CSV 按 UTF-8 读会出乱码，改用 GBK 再读一次
+          var r2 = new FileReader();
+          r2.onerror = function () { toast("文件读取失败"); };
+          r2.onload = function () { doImportCsv(String(r2.result || "")); };
+          r2.readAsText(file, "GBK");
+          return;
+        }
+        doImportCsv(text);
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+    input.click();
+  }
+
+  function doImportCsv(text) {
+    var rows = parseCsvText(String(text || "").replace(/^\uFEFF/, ""));
+    if (rows.length < 2) { alert("这个文件里没有数据行。"); return; }
+
+    var cols = mapHeader(rows[0]);
+    var missing = [];
+    if (cols.day == null) missing.push("日期");
+    if (cols.cents == null) missing.push("金额");
+    if (missing.length) {
+      alert("表头缺少必需的列：" + missing.join("、") +
+        "\n\n至少需要 日期、金额 两列；方向、分类、账户、备注可选。");
+      return;
+    }
+
+    var tagOut = db.tags.filter(function (t) { return t.flow === "out"; })[0] || db.tags[0];
+    var tagIn = db.tags.filter(function (t) { return t.flow === "in"; })[0] || db.tags[0];
+    var valid = [];
+    var errors = [];
+
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i];
+      var lineNo = i + 1;
+      var cellAt = function (k) { return cols[k] == null ? "" : String(r[cols[k]] || "").trim(); };
+
+      var day = normDay(cellAt("day"));
+      if (!day) { errors.push("第 " + lineNo + " 行 · 日期：" + (cellAt("day") || "空") + " 认不出"); continue; }
+
+      var cents = normCents(cellAt("cents"));
+      if (cents == null) { errors.push("第 " + lineNo + " 行 · 金额：" + (cellAt("cents") || "空") + " 不是正数"); continue; }
+
+      var flow = "out";
+      var rawFlow = cellAt("flow");
+      if (rawFlow) {
+        flow = normFlow(rawFlow);
+        if (!flow) { errors.push("第 " + lineNo + " 行 · 方向：" + rawFlow + " 不认识"); continue; }
+      }
+
+      var tag = null, wallet = null, toWallet = null;
+
+      if (flow === "move") {
+        var parts = cellAt("wallet").split(/→|->|＞|>/).map(function (x) { return x.trim(); });
+        wallet = matchWallet(parts[0]);
+        toWallet = matchWallet(parts[1]);
+        if (!wallet) { errors.push("第 " + lineNo + " 行 · 账户：" + (parts[0] || "空") + " 对不上"); continue; }
+        if (!toWallet) { errors.push("第 " + lineNo + " 行 · 账户：转账要写成「转出→转入」"); continue; }
+        tag = tagOut;
+      } else {
+        var rawTag = cellAt("tag");
+        tag = rawTag ? matchTag(rawTag) : (flow === "in" ? tagIn : tagOut);
+        if (!tag) { errors.push("第 " + lineNo + " 行 · 分类：" + rawTag + " 对不上"); continue; }
+        if (tag.flow !== flow) tag = flow === "in" ? tagIn : tagOut;
+
+        var rawW = cellAt("wallet");
+        wallet = rawW ? matchWallet(rawW) : db.wallets[0];
+        if (!wallet) { errors.push("第 " + lineNo + " 行 · 账户：" + rawW + " 对不上"); continue; }
+      }
+
+      valid.push({
+        flow: flow, cents: cents, tagId: tag.id,
+        walletId: wallet.id, toWalletId: toWallet ? toWallet.id : undefined,
+        day: day, memo: cellAt("memo")
+      });
+    }
+
+    if (!valid.length) {
+      alert("没有可导入的行。\n\n" + (errors.length ? errors.slice(0, 30).join("\n") : "文件里只有表头。"));
+      return;
+    }
+
+    // 重复判定：日期 + 金额(分) + 备注 完全相同
+    var seen = {};
+    db.entries.forEach(function (e) { seen[e.day + "|" + e.cents + "|" + (e.memo || "")] = 1; });
+    var dup = 0;
+    var fresh = [];
+    valid.forEach(function (v) {
+      var k = v.day + "|" + v.cents + "|" + v.memo;
+      if (seen[k]) { dup++; return; }
+      seen[k] = 1;
+      fresh.push(v);
+    });
+
+    var msg = "将导入 " + valid.length + " 条记录，其中 " + dup + " 条与现有记录重复" +
+      (dup ? "（重复的会跳过，实际写入 " + fresh.length + " 条）" : "") + "。";
+    if (errors.length) msg += "\n另有 " + errors.length + " 行解析失败，导入后会列出。";
+
+    if (!fresh.length) {
+      alert("没有需要写入的记录：全部 " + dup + " 条都与现有记录重复。" +
+        (errors.length ? "\n\n解析失败 " + errors.length + " 行。" : ""));
+      return;
+    }
+    if (!confirm(msg)) return;
+
+    var now = Date.now();
+    fresh.forEach(function (v, i) {
+      db.entries.push({
+        id: uid("e"), flow: v.flow, cents: v.cents, tagId: v.tagId,
+        walletId: v.walletId, toWalletId: v.toWalletId,
+        day: v.day, memo: v.memo, origin: "csv", at: now + i
+      });
+    });
+    save();
+    toast("已导入 " + fresh.length + " 条");
+    render();
+
+    if (errors.length) {
+      var detail = errors.slice(0, 30).join("\n");
+      if (errors.length > 30) detail += "\n…共 " + errors.length + " 行失败";
+      setTimeout(function () { alert("下面这些行没有导入：\n\n" + detail); }, 80);
+    }
+  }
+
+  /* ================= 持仓增删 ================= */
+
+  function addHolding() {
+    var code = String(ui.hCode || "").trim().toUpperCase();
+    var name = String(ui.hName || "").trim();
+    var shares = parseFloat(ui.hShares);
+    var cost = parseFloat(ui.hCost);
+    if (!code) { toast("先填代码"); return; }
+    if (!isFinite(shares) || shares <= 0) { toast("股数不对"); return; }
+    if (!isFinite(cost) || cost <= 0) { toast("成本价不对"); return; }
+
+    var exist = db.holdings.filter(function (h) { return h.code === code; })[0];
+    if (exist) {
+      // 同一只再次买入：按加权平均合并成本
+      var oldTotal = exist.shares * exist.costCents;
+      var addTotal = shares * Math.round(cost * 100);
+      exist.shares = exist.shares + shares;
+      exist.costCents = Math.round((oldTotal + addTotal) / exist.shares);
+      if (name) exist.name = name;
+      toast("已合并，均价 " + money(exist.costCents));
+    } else {
+      db.holdings.push({
+        id: uid("h"), code: code, name: name || code,
+        shares: shares, costCents: Math.round(cost * 100),
+        priceCents: null, priceAt: 0
+      });
+      toast("已加 " + (name || code));
+    }
+    ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = "";
+    save();
+    render();
+  }
+
+  function delHolding(id) {
+    var h = db.holdings.filter(function (x) { return x.id === id; })[0];
+    if (!h) return;
+    if (!confirm("删除持仓「" + (h.name || h.code) + "」？")) return;
+    db.holdings = db.holdings.filter(function (x) { return x.id !== id; });
+    save();
+    render();
+    toast("已删除");
+  }
+
   function resetData() {
     if (!confirm("清空所有记录？此操作不可撤销。")) return;
-    db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [] };
+    db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [], holdings: [] };
     save();
     toast("已清空");
     render();
@@ -860,8 +1423,14 @@
     else if (act === "statsFlow") { ui.statsFlow = v; render(); }
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
+    else if (act === "goHoldings") { location.hash = "#/holdings"; }
+    else if (act === "goOverview") { location.hash = "#/overview"; }
+    else if (act === "addHolding") addHolding();
+    else if (act === "delHolding") delHolding(id);
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "exportData") exportData();
+    else if (act === "exportCsv") exportCsv();
+    else if (act === "importCsv") importCsv();
     else if (act === "resetData") resetData();
   });
 
@@ -870,6 +1439,10 @@
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "setDay") ui.day = el.value;
     else if (act === "setMemo") ui.memo = el.value;
+    else if (act === "hCode") ui.hCode = el.value;
+    else if (act === "hName") ui.hName = el.value;
+    else if (act === "hShares") ui.hShares = el.value;
+    else if (act === "hCost") ui.hCost = el.value;
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
