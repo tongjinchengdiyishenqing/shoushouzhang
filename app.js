@@ -414,12 +414,16 @@
       var rows_html = rows.map(function (e) {
         var t = tagById(e.tagId);
         var w = walletById(e.walletId);
+        // 转账没有分类概念：meta 只显示「转出 → 转入」，不再重复左列账户名
+        var metaHtml = e.flow === "move"
+          ? '<span>' + esc(w.name) + " → " + esc(walletById(e.toWalletId).name) + "</span>"
+          : '<span>' + esc(w.name) + "</span><span>" + esc(t.name) + "</span>";
         return (
           '<div class="entry" data-act="editEntry" data-id="' + esc(e.id) + '">' +
             '<div class="glyph">' + iconOf(t.id) + "</div>" +
             '<div class="body">' +
-              '<div class="title">' + esc(e.memo || t.name) + "</div>" +
-              '<div class="meta"><span>' + esc(w.name) + "</span><span>" + esc(t.name) + "</span></div>" +
+              '<div class="title">' + esc(e.memo || (e.flow === "move" ? "转账" : t.name)) + "</div>" +
+              '<div class="meta">' + metaHtml + "</div>" +
             "</div>" +
             '<div class="amt ' + (e.flow === "in" ? "in" : "out") + '">' +
               (e.flow === "in" ? "+" : "-") + money(e.cents) +
@@ -840,13 +844,14 @@
         ui.quoteState = "ok";
         ui.quoteFailAt = 0;
         ui.quoteAt = (j && j.as_of) || "";
-        render();
+        // 只在仍停在持仓页时重绘，避免用户已切页却被拉回来重排
+        if (parseHash().view === "holdings") render();
       })
       .catch(function () {
         done();
         ui.quoteState = "fail";
         ui.quoteFailAt = Date.now();
-        render();
+        if (parseHash().view === "holdings") render();
       });
   }
 
@@ -1016,9 +1021,11 @@
     return { view: seg[0] || "book", params: params };
   }
 
+  /* 上一次渲染的路由标识，用来判断是「换页」还是「同页重绘」 */
+  var lastRoute = "";
+
   function render() {
-    var r = parseHash();
-    var app = document.getElementById("app");
+    var r = parseHash();    var app = document.getElementById("app");
     var body;
     if (r.view === "entry") body = viewEntry(r.params);
     else if (r.view === "stats") body = viewStats();
@@ -1043,7 +1050,18 @@
       : "";
 
     app.className = "phone" + (isEntry ? " entry-page" : "");
-    app.innerHTML = '<div class="view">' + body + "</div>" + tabs + fab;
+    // 只有「换页」才播放入场动画；同页重绘（切分类/切账户）不重放，避免闪屏
+    var routeKey = r.view + (r.params.id || "");
+    var isRouteChange = routeKey !== lastRoute;
+    lastRoute = routeKey;
+    var keepY = isRouteChange ? 0 : window.scrollY;
+    app.innerHTML = '<div class="view' + (isRouteChange ? " enter" : "") + '">' + body + "</div>" + tabs + fab;
+    if (!isRouteChange && keepY) window.scrollTo(0, keepY);
+    // 进记账页时把键盘滚进视口（只在换页时做一次，不再每次按键都滚）
+    if (isRouteChange && isEntry) {
+      var pad = document.querySelector(".pad");
+      if (pad) pad.scrollIntoView({ block: "end" });
+    }
   }
 
   /* ================= 交互 ================= */
@@ -1066,6 +1084,19 @@
     render();
   }
 
+  /* 只重绘金额，不重建整页——按键时才不会闪、不会跳、不会丢焦点 */
+  function paintAmount() {
+    var el = document.querySelector(".amount-display .num");
+    if (!el) return;
+    if (!ui.draft) {
+      el.textContent = "0.00";
+      el.className = "num placeholder";
+      return;
+    }
+    el.textContent = money(Math.round(parseFloat(ui.draft || "0") * 100));
+    el.className = "num";
+  }
+
   function keyInput(k) {
     if (k === "⌫") {
       ui.draft = ui.draft.slice(0, -1);
@@ -1077,13 +1108,12 @@
       if (ui.draft.indexOf(".") < 0) ui.draft = (ui.draft || "0") + ".";
     } else {
       var dot = ui.draft.indexOf(".");
-      if (dot >= 0 && ui.draft.length - dot > 2) return;
+      if (dot >= 0 && ui.draft.length - dot > 2) return;   // 小数最多两位
+      if (ui.draft.length >= 9) return;                     // 整数位上限，防溢出
       if (ui.draft === "0") ui.draft = k;
       else ui.draft += k;
     }
-    render();
-    var pad = document.querySelector(".pad");
-    if (pad) pad.scrollIntoView({ block: "end" });
+    paintAmount();
   }
 
   function saveEntry(editingId) {
@@ -1114,10 +1144,21 @@
       toast("记下了");
     }
     save();
+    resetEntryForm();
+    location.hash = "#/book";
+  }
+
+  /* 离开记账页时把表单恢复默认，下次进来是干净的一笔（否则会沿用上次的收入/账户/日期） */
+  function resetEntryForm() {
     ui.draft = "";
     ui.memo = "";
+    ui.day = ymd(new Date());
+    ui.flow = "out";
+    var f = db.tags.filter(function (t) { return t.flow === "out"; })[0] || db.tags[0];
+    ui.tagId = f ? f.id : "t_food";
+    ui.walletId = "w_pay";
+    ui.toWalletId = "w_bank";
     ui._loaded = false;
-    location.hash = "#/book";
   }
 
   function deleteEntry(id) {
@@ -1528,15 +1569,25 @@
 
     if (act === "prevMonth") shiftMonth(-1);
     else if (act === "nextMonth") shiftMonth(1);
-    else if (act === "setFlow") { ui.flow = v; if (v !== "move") { var f = db.tags.filter(function (t) { return t.flow === (v === "in" ? "in" : "out"); }); if (f.length) ui.tagId = f[0].id; } render(); }
-    else if (act === "setTag") { ui.tagId = v; render(); }
+    else if (act === "setFlow") {
+      ui.flow = v;
+      if (v !== "move") {
+        // 记住每种方向上次选的分类，切回来不丢
+        var want = (ui._lastTag || {})[v];
+        var f = db.tags.filter(function (t) { return t.id === want; })[0];
+        if (!f) f = db.tags.filter(function (t) { return t.flow === (v === "in" ? "in" : "out"); })[0];
+        if (f) ui.tagId = f.id;
+      }
+      render();
+    }
+    else if (act === "setTag") { ui.tagId = v; ui._lastTag = ui._lastTag || {}; ui._lastTag[ui.flow] = v; render(); }
     else if (act === "setWallet") { ui.walletId = v; render(); }
     else if (act === "setToWallet") { if (v === ui.walletId) { toast("与转出账户相同"); return; } ui.toWalletId = v; render(); }
     else if (act === "key") keyInput(v);
     else if (act === "saveEntry") saveEntry(id || null);
     else if (act === "delEntry") deleteEntry(id);
     else if (act === "editEntry") { ui._loaded = false; location.hash = "#/entry?id=" + encodeURIComponent(id); }
-    else if (act === "back") { ui._loaded = false; location.hash = "#/book"; }
+    else if (act === "back") { resetEntryForm(); location.hash = "#/book"; }
     else if (act === "statsFlow") { ui.statsFlow = v; render(); }
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
