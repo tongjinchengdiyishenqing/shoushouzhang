@@ -401,8 +401,9 @@ html, body {
 .amount-display .num.placeholder { color: #d8d8de; }
 
 .card { padding: 0; }
+.entry-page .card { padding: 0 0 6px; }
 .card-title {
-  padding: 26px var(--pad) 12px;
+  padding: 16px var(--pad) 10px;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -412,7 +413,7 @@ html, body {
 .tag-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 22px 10px;
+  gap: 16px 10px;
   padding: 0 var(--pad) 6px;
 }
 .tag-grid.cols-4 .tag-cell { width: calc((100% - 30px) / 4); }
@@ -452,7 +453,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px var(--pad);
+  padding: 13px var(--pad);
   border-bottom: 1.5px solid var(--line);
   font-size: 15px;
 }
@@ -475,6 +476,22 @@ html, body {
 }
 .field-row input::placeholder { color: var(--ink-3); font-weight: 400; }
 
+/* 记账页：键盘固定在视口底部，内容区自己滚。
+   否则整页滚到底才能看见键盘，会把标题、支出/收入切换、甚至金额数字顶出屏幕 */
+.entry-page .pad {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 390px;
+  max-width: 100vw;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+}
+.entry-page .view { padding-bottom: 292px; }
+
 .pad {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -494,6 +511,9 @@ html, body {
   cursor: pointer;
 }
 .key:active { background: var(--surface); }
+/* 按下反馈用渐变代替突变，快速点按时不闪 */
+.key { transition: background-color 0.1s ease; }
+.key { touch-action: manipulation; }
 .key.wide { grid-column: span 2; }
 .key.fn { font-size: 14px; font-weight: 500; color: var(--ink-3); }
 .key.go {
@@ -1030,8 +1050,8 @@ html, body {
 
 /* ---------- 轻动效 ---------- */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes growY {
   from { transform: scaleY(0.02); }
