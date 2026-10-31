@@ -286,7 +286,11 @@
     hCode: "",
     hName: "",
     hShares: "",
-    hCost: ""
+    hCost: "",
+    /* 报价拉取状态：idle / loading / ok / fail */
+    quoteState: "idle",
+    quoteFailAt: 0,
+    quoteAt: ""
   };
 
   function viewBook() {
@@ -715,6 +719,21 @@
     return v % 1 === 0 ? String(v) : v.toFixed(2);
   }
 
+  /* 价格不补零：1500.00 → 1500，8.75 → 8.75，省出横向空间 */
+  function fmtPrice(cents) {
+    var v = (Number(cents) || 0) / 100;
+    return v % 1 === 0 ? String(v) : String(parseFloat(v.toFixed(2)));
+  }
+
+  /* 千分位但去掉多余的 .00，给行内小字用 */
+  function fmtMoneyShort(cents) {
+    var v = Math.abs((Number(cents) || 0) / 100);
+    var s = v % 1 === 0 ? String(v) : v.toFixed(2);
+    var p = s.split(".");
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return p.join(".");
+  }
+
   /* 持仓统一口径：没拉到报价的，用成本价当现价，并在行上标「待更新」 */
   function holdingStats() {
     var list = (db.holdings || []).map(function (h) {
@@ -751,24 +770,117 @@
     return { inc: inc, out: out, div: div };
   }
 
+  /* ================= 行情（四级降级）=================
+     ① 持仓里自带的 priceAt 未过期 → 直接用
+     ② 过期 → 一次批量请求 /api/v1/quotes（限流 30/分钟，不逐只请求）
+     ③ 请求失败 → 保留手工价，行上标「待更新报价」，60 秒内不重试
+     ④ 什么都没有 → 显示「暂无报价」，页面照常可用，不白屏
+     —— 分析服务跑在用户自己电脑上，关机就没了，记账不能因此不可用 */
+
+  var QUOTE_API = "https://v.yutiqu.eu.cc/api/v1/quotes";
+  var QUOTE_TTL = 24 * 3600 * 1000;   // 24 小时
+  var QUOTE_RETRY_GAP = 60 * 1000;    // 失败后冷却 60 秒
+
+  /* 输 600519 自动补成 600519.SH，省得记后缀 */
+  function normCode(raw) {
+    var s = String(raw || "").trim().toUpperCase();
+    if (/^\d{6}$/.test(s)) {
+      if (/^(6|9)/.test(s)) return s + ".SH";
+      if (/^(0|3|8)/.test(s)) return s + ".SZ";
+      if (/^4/.test(s)) return s + ".BJ";
+    }
+    return s;
+  }
+
+  function holdingsNeedQuote() {
+    if (!db.holdings || !db.holdings.length) return false;
+    var now = Date.now();
+    return db.holdings.some(function (h) {
+      return !h.priceAt || now - h.priceAt > QUOTE_TTL;
+    });
+  }
+
+  function applyQuotes(quotes) {
+    var changed = false;
+    (db.holdings || []).forEach(function (h) {
+      var q = quotes[h.code];
+      if (!q || !isFinite(q.price) || q.price <= 0) return;
+      h.priceCents = Math.round(q.price * 100);
+      h.priceAt = Date.now();
+      if (q.name && (!h.name || h.name === h.code)) h.name = q.name;
+      changed = true;
+    });
+    if (changed) save();
+    return changed;
+  }
+
+  function refreshQuotes(force) {
+    if (!db.holdings || !db.holdings.length) return;
+    if (ui.quoteState === "loading") return;
+    if (!force && !holdingsNeedQuote()) return;
+    if (!force && ui.quoteFailAt && Date.now() - ui.quoteFailAt < QUOTE_RETRY_GAP) return;
+
+    ui.quoteState = "loading";
+    var codes = db.holdings.map(function (h) { return h.code; });
+    var url = QUOTE_API + "?codes=" + encodeURIComponent(codes.join(","));
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 8000) : null;
+
+    function done() { if (timer) clearTimeout(timer); }
+
+    fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        done();
+        var data = (j && j.quotes) || {};
+        applyQuotes(data);
+        ui.quoteState = "ok";
+        ui.quoteFailAt = 0;
+        ui.quoteAt = (j && j.as_of) || "";
+        render();
+      })
+      .catch(function () {
+        done();
+        ui.quoteState = "fail";
+        ui.quoteFailAt = Date.now();
+        render();
+      });
+  }
+
+  function quoteLineText() {
+    if (ui.quoteState === "loading") return "正在更新报价…";
+    if (ui.quoteState === "fail") return "报价更新失败 · 用手工价";
+    var stale = (db.holdings || []).filter(function (h) { return !h.priceAt; }).length;
+    if (stale) return stale + " 只待更新报价";
+    var ts = String(ui.quoteAt || "");
+    var hm = ts.length >= 16 ? ts.slice(11, 16) : "";
+    return hm ? "报价 " + hm + " 更新" : "报价已更新";
+  }
+
   function viewHoldings() {
     var s = holdingStats();
 
     var rows = s.list.length
       ? s.list.map(function (x) {
-          return '<div class="entry" data-act="delHolding" data-id="' + esc(x.id) + '">' +
+          var pnlUp = x.pnl > 0, pnlDown = x.pnl < 0;
+          return '<div class="hrow" data-act="delHolding" data-id="' + esc(x.id) + '">' +
             '<div class="glyph">' + iconOf("w_fund") + "</div>" +
-            '<div class="body">' +
-              '<div class="title">' + esc(x.name) + "</div>" +
-              '<div class="meta"><span>' + esc(x.code) + "</span>" +
-                "<span>" + fmtShares(x.shares) + " 股 @" + money(x.costCents) + "</span>" +
+            '<div class="hmain">' +
+              '<div class="hline">' +
+                '<span class="nm">' + esc(x.name) + "</span>" +
+                '<span class="mv">' + cash(x.mv) + "</span>" +
               "</div>" +
-            "</div>" +
-            '<div class="amt">' + cash(x.mv) +
-              '<span class="amt-note ' + (x.pnl > 0 ? "up" : x.pnl < 0 ? "down" : "") + '">' +
-                (x.stale ? "待更新报价" :
-                  (x.pnl >= 0 ? "+" : "") + money(x.pnl) + "（" + (x.pnlPct >= 0 ? "+" : "") + x.pnlPct.toFixed(1) + "%）") +
-              "</span>" +
+              '<div class="hline">' +
+                '<span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股@" + fmtPrice(x.costCents) + "</span>" +
+                '<span class="pnl ' + (pnlUp ? "up" : pnlDown ? "down" : "") + '">' +
+                  (x.stale ? "待更新" :
+                    (x.pnl >= 0 ? "+" : "-") + fmtMoneyShort(x.pnl) +
+                    " (" + (x.pnlPct >= 0 ? "+" : "") + x.pnlPct.toFixed(1) + "%)") +
+                "</span>" +
+              "</div>" +
             "</div>" +
           "</div>";
         }).join("")
@@ -782,6 +894,8 @@
         '<div class="delta ' + (s.pnl < 0 ? "down" : s.pnl > 0 ? "up" : "") + '">持仓盈亏 <b>' +
           (s.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(s.pnl)) + "（" +
           (s.pnlPct >= 0 ? "+" : "") + s.pnlPct.toFixed(1) + "%）</b></div>" +
+        (s.list.length ? '<div class="quote-line">' + quoteLineText() +
+          '<span class="quote-refresh" data-act="refreshQuotes">刷新</span></div>' : "") +
       "</div>";
 
     var form =
@@ -796,6 +910,9 @@
         '<div class="list-row"><span>同一代码重复添加</span><span class="hint">按加权平均合并成本</span></div>' +
         '<div class="list-row"><span>点一行</span><span class="hint">删除这只</span></div>' +
       "</div>";
+
+    // 渲染完再异步拉报价，避免在 render 栈里同步递归
+    setTimeout(function () { refreshQuotes(false); }, 0);
 
     return head + '<div class="card"><div class="card-title">明细</div>' + rows + "</div>" + form;
   }
@@ -1354,7 +1471,7 @@
   /* ================= 持仓增删 ================= */
 
   function addHolding() {
-    var code = String(ui.hCode || "").trim().toUpperCase();
+    var code = normCode(ui.hCode);
     var name = String(ui.hName || "").trim();
     var shares = parseFloat(ui.hShares);
     var cost = parseFloat(ui.hCost);
@@ -1427,6 +1544,7 @@
     else if (act === "goOverview") { location.hash = "#/overview"; }
     else if (act === "addHolding") addHolding();
     else if (act === "delHolding") delHolding(id);
+    else if (act === "refreshQuotes") refreshQuotes(true);
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "exportData") exportData();
     else if (act === "exportCsv") exportCsv();
