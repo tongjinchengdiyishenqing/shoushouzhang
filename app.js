@@ -535,7 +535,8 @@
         html += '<div class="key ' + (fn ? "fn" : "") + '" data-act="key" data-v="' + k + '">' + k + "</div>";
       });
       if (row.length === 2) {
-        html += '<div class="key go wide" data-act="saveEntry">' + (editing ? "保存" : "记下") + "</div>";
+        html += '<div class="key go wide" data-act="saveEntry" data-id="' +
+          (editing ? esc(editing.id) : "") + '">' + (editing ? "保存" : "记下") + "</div>";
       }
     });
     if (editing) {
@@ -1077,11 +1078,22 @@
     }, 1200);
   }
 
+  /* 连点月份按钮时把多次位移合并成一次渲染：
+     否则第一次点击就把按钮节点换掉，后面的点击会落在已脱离文档的旧节点上而丢失 */
+  var _monthQueue = 0, _monthTimer = null;
   function shiftMonth(delta) {
-    var p = ui.month.split("-");
-    var d = new Date(Number(p[0]), Number(p[1]) - 1 + delta, 1);
-    ui.month = d.getFullYear() + "-" + pad(d.getMonth() + 1);
-    render();
+    _monthQueue += delta;
+    if (_monthTimer) clearTimeout(_monthTimer);
+    _monthTimer = setTimeout(function () {
+      var d0 = _monthQueue;
+      _monthQueue = 0;
+      _monthTimer = null;
+      if (!d0) return;
+      var p = ui.month.split("-");
+      var d = new Date(Number(p[0]), Number(p[1]) - 1 + d0, 1);
+      ui.month = d.getFullYear() + "-" + pad(d.getMonth() + 1);
+      render();
+    }, 0);
   }
 
   /* 只重绘金额，不重建整页——按键时才不会闪、不会跳、不会丢焦点 */
@@ -1128,9 +1140,10 @@
       walletId: ui.walletId,
       toWalletId: ui.flow === "move" ? ui.toWalletId : undefined,
       day: ui.day,
-      memo: ui.memo,
-      origin: "manual"
+      memo: ui.memo
     };
+    // 只有新建才写 origin；编辑保留原值（否则 csv 导入的「导入」标记会被洗掉）
+    if (!editingId) payload.origin = "manual";
 
     if (editingId) {
       db.entries = db.entries.map(function (e) {
