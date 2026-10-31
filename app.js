@@ -392,9 +392,24 @@
         '<div class="list-row"><span>笔数</span><span class="hint">' + yearCount + " 笔</span></div>" +
       "</div>";
 
-    var listHtml = s.list.length
-      ? groupEntries(s.list)
-      : '<div class="empty"><span class="big-emoji">🪶</span>这个月还是空白，点右下角记一笔</div>';
+    var listHtml;
+    if (s.list.length) {
+      listHtml = groupEntries(s.list);
+    } else {
+      // 月初打开时当月必然是空的，直接显示空白会让人以为数据丢了，给一个跳到「上一个有记录的月份」的入口
+      var monthsWithData = {};
+      db.entries.forEach(function (e) { monthsWithData[String(e.day).slice(0, 7)] = 1; });
+      // 只往过去找（YYYY-MM 字符串比较即时间顺序），避免跳到未来的月份
+      var pastMonth = Object.keys(monthsWithData)
+        .filter(function (k) { return k < ui.month; })
+        .sort().reverse()[0];
+      listHtml = pastMonth
+        ? '<div class="empty">这个月还没有记录' +
+            '<div class="empty-act" data-act="gotoMonth" data-v="' + esc(pastMonth) + '">看 ' +
+            esc(pastMonth.slice(0, 4) + " 年 " + Number(pastMonth.slice(5))) + ' 月 ›</div>' +
+          "</div>"
+        : '<div class="empty"><span class="big-emoji">🪶</span>还没有任何记录，点右下角记第一笔</div>';
+    }
 
     return head + chart + yearCard + listHtml;
   }
@@ -1157,8 +1172,15 @@
       toast("记下了");
     }
     save();
+    // 记到了别的月份时，把账本跳到那个月，否则用户会以为没记上
+    var savedMonth = String(payload.day).slice(0, 7);
+    var monthChanged = savedMonth !== ui.month;
+    if (monthChanged) ui.month = savedMonth;
     resetEntryForm();
     location.hash = "#/book";
+    if (monthChanged) {
+      toast("已记到 " + savedMonth.slice(0, 4) + " 年 " + Number(savedMonth.slice(5)) + " 月");
+    }
   }
 
   /* 离开记账页时把表单恢复默认，下次进来是干净的一笔（否则会沿用上次的收入/账户/日期） */
@@ -1605,6 +1627,7 @@
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
     else if (act === "goHoldings") { location.hash = "#/holdings"; }
+    else if (act === "gotoMonth") { if (v) { ui.month = v; render(); } }
     else if (act === "goOverview") { location.hash = "#/overview"; }
     else if (act === "addHolding") addHolding();
     else if (act === "delHolding") delHolding(id);
@@ -1628,6 +1651,21 @@
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
+
+  /* 多标签页 / 多窗口数据同步：
+     localStorage 是共享的，但改动的那个标签不会收到 storage 事件，
+     只有「其他」标签会收到——正好用来同步，否则两边各写各的会把数据覆盖掉 */
+  var _syncTimer = null;
+  window.addEventListener("storage", function (ev) {
+    if (ev.key !== STORE_KEY) return;
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(function () {
+      _syncTimer = null;
+      load();
+      render();
+      toast("已同步其他窗口的改动");
+    }, 200);
+  });
 
   /* ================= 启动 ================= */
 
