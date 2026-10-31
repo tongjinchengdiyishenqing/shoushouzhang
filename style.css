@@ -999,7 +999,7 @@ html, body {
   from { transform: scaleY(0.02); }
   to { transform: scaleY(1); }
 }
-.view { animation: fadeIn 0.24s ease both; }
+.view.enter { animation: fadeIn 0.24s ease both; }
 .bar {
   transform-origin: bottom center;
   animation: growY 0.52s cubic-bezier(0.22, 0.8, 0.28, 1) both;
