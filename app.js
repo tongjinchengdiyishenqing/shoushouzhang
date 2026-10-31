@@ -1073,10 +1073,10 @@
     var keepY = isRouteChange ? 0 : window.scrollY;
     app.innerHTML = '<div class="view' + (isRouteChange ? " enter" : "") + '">' + body + "</div>" + tabs + fab;
     if (!isRouteChange && keepY) window.scrollTo(0, keepY);
-    // 进记账页时把键盘滚进视口（只在换页时做一次，不再每次按键都滚）
-    if (isRouteChange && isEntry) {
-      var pad = document.querySelector(".pad");
-      if (pad) pad.scrollIntoView({ block: "end" });
+    // 动画只播一次：播完立刻摘掉 class，之后任何重建都不会重播（否则切分类时会整页闪）
+    if (isRouteChange) {
+      var v = app.querySelector(".view");
+      if (v) setTimeout(function () { v.classList.remove("enter"); }, 300);
     }
   }
 
