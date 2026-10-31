@@ -1082,14 +1082,22 @@
 
   /* ================= 交互 ================= */
 
+  var _toastEl = null, _toastTimer = null;
   function toast(msg) {
+    // 同一时刻只留一个：连续操作时不会叠着显示，也不会让后来者被前面的挡住
+    if (_toastEl) { _toastEl.remove(); _toastEl = null; }
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
     var el = document.createElement("div");
     el.className = "toast show";
     el.textContent = msg;
     document.body.appendChild(el);
-    setTimeout(function () {
+    _toastEl = el;
+    _toastTimer = setTimeout(function () {
       el.className = "toast";
-      setTimeout(function () { el.remove(); }, 220);
+      _toastTimer = setTimeout(function () {
+        el.remove();
+        if (_toastEl === el) _toastEl = null;
+      }, 220);
     }, 1200);
   }
 
