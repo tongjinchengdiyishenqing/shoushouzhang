@@ -320,6 +320,18 @@ html, body {
   font-weight: 500;
 }
 .empty .big-emoji { display: none; }
+.empty-act {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 8px 18px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.empty-act:active { opacity: 0.6; }
 
 /* ---------- 记一笔 ---------- */
 .entry-page { padding-bottom: 0; background: var(--paper); }
