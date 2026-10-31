@@ -1083,22 +1083,38 @@
   /* ================= 交互 ================= */
 
   var _toastEl = null, _toastTimer = null;
-  function toast(msg) {
-    // 同一时刻只留一个：连续操作时不会叠着显示，也不会让后来者被前面的挡住
+  /* 带动作的提示：用于「删除后可撤销」这类操作，停留时间更长，点按钮才执行 */
+  function toast(msg, actionText, onAction) {
     if (_toastEl) { _toastEl.remove(); _toastEl = null; }
     if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
     var el = document.createElement("div");
     el.className = "toast show";
-    el.textContent = msg;
+    var span = document.createElement("span");
+    span.textContent = msg;
+    el.appendChild(span);
+    if (actionText) {
+      el.classList.add("has-action");
+      var btn = document.createElement("button");
+      btn.className = "toast-action";
+      btn.textContent = actionText;
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        el.remove();
+        if (_toastEl === el) _toastEl = null;
+        if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+        if (typeof onAction === "function") onAction();
+      });
+      el.appendChild(btn);
+    }
     document.body.appendChild(el);
     _toastEl = el;
     _toastTimer = setTimeout(function () {
-      el.className = "toast";
+      el.className = "toast" + (actionText ? " has-action" : "");
       _toastTimer = setTimeout(function () {
         el.remove();
         if (_toastEl === el) _toastEl = null;
       }, 220);
-    }, 1200);
+    }, actionText ? 5000 : 1200);
   }
 
   /* 连点月份按钮时把多次位移合并成一次渲染：
@@ -1205,11 +1221,19 @@
   }
 
   function deleteEntry(id) {
+    var gone = db.entries.filter(function (e) { return e.id === id; })[0];
+    if (!gone) return;
     if (!confirm("删除这笔记录？")) return;
     db.entries = db.entries.filter(function (e) { return e.id !== id; });
     save();
-    toast("已删除");
     location.hash = "#/book";
+    // 删错了能救回来：5 秒内点「撤销」原样放回
+    toast("已删除", "撤销", function () {
+      db.entries.push(gone);
+      save();
+      render();
+      toast("已恢复");
+    });
   }
 
   function exportData() {
