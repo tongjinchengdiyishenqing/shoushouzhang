@@ -279,6 +279,20 @@ html, body {
   margin-right: 8px;
   color: var(--ink-3);
 }
+.entry .meta span { white-space: nowrap; }
+/* 金额下方的小字（持仓的盈亏） */
+.entry .amt .amt-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-align: right;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.amt-note.up { color: var(--pos); }
+.amt-note.down { color: var(--neg); }
 .entry .amt {
   font-size: 17px;
   font-weight: 700;
@@ -289,6 +303,12 @@ html, body {
 }
 .amt.in { color: var(--pos); }
 .amt.out { color: var(--ink); }
+.amt .csv-tag {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
+  margin-left: 4px;
+}
 
 .empty {
   padding: 84px var(--pad);
@@ -731,6 +751,62 @@ html, body {
   font-weight: 700;
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 持仓 / 财务全景 ---------- */
+.btn-primary {
+  display: block;
+  width: calc(100% - 44px);
+  margin: 6px 22px 22px;
+  height: 50px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.btn-primary:active { opacity: 0.85; }
+
+.cover {
+  padding: 6px 22px 18px;
+}
+.cover-num {
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -2px;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cover-num span {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink-3);
+  margin-left: 3px;
+}
+.cover-desc {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.cover .track {
+  margin-top: 14px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.cover .track i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ink);
 }
 
 /* ---------- 设置 ---------- */
