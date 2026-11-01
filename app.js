@@ -9,6 +9,7 @@
   /* ================= 存储 ================= */
 
   var STORE_KEY = "sz.book.v5";
+  var APP_VERSION = "1.0.0";
 
   var DEFAULTS = {
     wallets: [
@@ -187,7 +188,9 @@
     w_bank: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 11h18M7 15h4"/>',
     w_fund: '<path d="M4 18l5-6 4 3 6-8"/><path d="M15 7h4v4"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/>',
+    trash: '<path d="M4.5 7h15"/><path d="M9.5 7V5.3a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3V7"/><path d="M6.6 7l.85 12.05A1.7 1.7 0 0 0 9.15 20.6h5.7a1.7 1.7 0 0 0 1.7-1.55L17.4 7"/>'
   };
 
   function iconOf(id, fallback) {
@@ -213,6 +216,10 @@
   function tagById(id) {
     for (var i = 0; i < db.tags.length; i++) if (db.tags[i].id === id) return db.tags[i];
     return { id: id, name: "未分类", glyph: "•", flow: "out", color: "#8A8A8A" };
+  }
+  /* 分类图标统一入口：自定义分类的 id 不在 ICONS 表里，用 customIcon 兜底 */
+  function tagIcon(t) {
+    return iconOf(t.customIcon || t.id, iconOf("t_misc"));
   }
   function walletById(id) {
     for (var i = 0; i < db.wallets.length; i++) if (db.wallets[i].id === id) return db.wallets[i];
@@ -290,7 +297,17 @@
     /* 报价拉取状态：idle / loading / ok / fail */
     quoteState: "idle",
     quoteFailAt: 0,
-    quoteAt: ""
+    quoteAt: "",
+    /* 账户 / 分类管理的表单状态 */
+    editWalletId: "",
+    wName: "",
+    wOpening: "",
+    editTagId: "",
+    tagName: "",
+    tagFlow: "out",
+    tagIcon: "",
+    /* 搜索关键词（跨全部月份） */
+    searchQ: ""
   };
 
   function viewBook() {
@@ -366,7 +383,7 @@
       '<div class="topbar">' +
         '<div class="icon-btn" data-act="toggleMenu">' + iconOf("menu") + "</div>" +
         "<h1>账单</h1>" +
-        '<div class="icon-btn" data-act="goStats">' + iconOf("clock") + "</div></div>" +
+        '<div class="icon-btn" data-act="goSearch">' + iconOf("search") + "</div></div>" +
       '<div class="month-line"><span data-act="prevMonth">‹</span><b>' + esc(label) + '</b><span data-act="nextMonth">›</span></div>' +
       '<div class="hero">' +
         '<div class="label">余额 · 全部账户</div>' +
@@ -384,12 +401,15 @@
       if (e.flow === "out") yearOut += e.cents;
       else if (e.flow === "in") yearIn += e.cents;
     });
+    // 2×2 而不是四行：右列数字要避开右下角的悬浮 ＋
     var yearCard =
       '<div class="card"><div class="card-title">' + esc(yearKey) + " 年汇总</div>" +
-        '<div class="list-row"><span>收入</span><span class="hint" style="color:var(--pos)">+¥' + money(yearIn) + "</span></div>" +
-        '<div class="list-row"><span>支出</span><span class="hint">−¥' + money(yearOut) + "</span></div>" +
-        '<div class="list-row"><span>结余</span><span class="hint">' + cash(yearIn - yearOut) + "</span></div>" +
-        '<div class="list-row"><span>笔数</span><span class="hint">' + yearCount + " 笔</span></div>" +
+        '<div class="ygrid">' +
+          '<div class="ycell"><i>收入</i><b class="pos">+¥' + money(yearIn) + "</b></div>" +
+          '<div class="ycell"><i>支出</i><b>−¥' + money(yearOut) + "</b></div>" +
+          '<div class="ycell"><i>结余</i><b>' + cash(yearIn - yearOut) + "</b></div>" +
+          '<div class="ycell"><i>笔数</i><b>' + yearCount + " 笔</b></div>" +
+        "</div>" +
       "</div>";
 
     var listHtml;
@@ -435,7 +455,7 @@
           : '<span>' + esc(w.name) + "</span><span>" + esc(t.name) + "</span>";
         return (
           '<div class="entry" data-act="editEntry" data-id="' + esc(e.id) + '">' +
-            '<div class="glyph">' + iconOf(t.id) + "</div>" +
+            '<div class="glyph">' + tagIcon(t) + "</div>" +
             '<div class="body">' +
               '<div class="title">' + esc(e.memo || (e.flow === "move" ? "转账" : t.name)) + "</div>" +
               '<div class="meta">' + metaHtml + "</div>" +
@@ -470,6 +490,19 @@
       ui._loaded = true;
     }
 
+    // 选中的账户/分类可能被删掉了：落到第一个可用的，否则这笔会记到不存在的账户上，钱凭空消失
+    if (!db.wallets.some(function (w) { return w.id === ui.walletId; })) {
+      ui.walletId = db.wallets[0] ? db.wallets[0].id : "w_pay";
+    }
+    if (!db.wallets.some(function (w) { return w.id === ui.toWalletId && w.id !== ui.walletId; })) {
+      var other = db.wallets.filter(function (w) { return w.id !== ui.walletId; })[0];
+      ui.toWalletId = other ? other.id : ui.walletId;
+    }
+    if (ui.flow !== "move") {
+      var tlist = db.tags.filter(function (t) { return t.flow === (ui.flow === "in" ? "in" : "out"); });
+      if (!tlist.some(function (t) { return t.id === ui.tagId; }) && tlist[0]) ui.tagId = tlist[0].id;
+    }
+
     var tabs = [
       { k: "out", n: "支出" },
       { k: "in", n: "收入" },
@@ -487,28 +520,29 @@
           '<div class="tag-grid">' +
             tags.map(function (t) {
               return '<div class="tag-cell ' + (ui.tagId === t.id ? "on" : "") + '" data-act="setTag" data-v="' + t.id + '">' +
-                '<span class="g">' + iconOf(t.id) + "</span><span>" + esc(t.name) + "</span></div>";
+                '<span class="g">' + tagIcon(t) + "</span><span>" + esc(t.name) + "</span></div>";
             }).join("") +
           "</div>" +
         "</div>";
     }
 
+    // 账户用一行胶囊：键盘固定占掉屏幕下半截，账户要是再画大图标就会顶到键盘底下被切掉
+    function walletPills(act, curId, skipId) {
+      return '<div class="wal-line">' +
+        db.wallets.map(function (w) {
+          var dis = skipId && w.id === skipId ? " is-dim" : "";
+          return '<div class="wal-pill' + (curId === w.id ? " on" : "") + dis + '" data-act="' + act + '" data-v="' + w.id + '">' +
+            '<span class="g">' + iconOf(w.id, iconOf("w_cash")) + "</span>" + esc(w.name) + "</div>";
+        }).join("") +
+      "</div>";
+    }
+
     var walletsHtml =
-      '<div class="card">' +
-        '<div class="card-title">' + (ui.flow === "move" ? "从哪转出" : "账户") + "</div>" +
-        '<div class="tag-grid cols-4">' +
-          db.wallets.map(function (w) {
-            return '<div class="tag-cell ' + (ui.walletId === w.id ? "on" : "") + '" data-act="setWallet" data-v="' + w.id + '">' +
-              '<span class="g">' + iconOf(w.id, iconOf("w_cash")) + "</span><span>" + esc(w.name) + "</span></div>";
-          }).join("") +
-        "</div>" +
+      '<div class="wal-block">' +
+        '<div class="wal-cap">' + (ui.flow === "move" ? "从哪转出" : "账户") + "</div>" +
+        walletPills("setWallet", ui.walletId, null) +
         (ui.flow === "move"
-          ? '<div class="card-title" style="margin-top:14px">转到哪个账户</div><div class="tag-grid cols-4">' +
-            db.wallets.map(function (w) {
-              var dis = w.id === ui.walletId ? "opacity:.35" : "";
-              return '<div class="tag-cell ' + (ui.toWalletId === w.id ? "on" : "") + '" style="' + dis + '" data-act="setToWallet" data-v="' + w.id + '">' +
-                '<span class="g">' + iconOf(w.id, iconOf("w_cash")) + "</span><span>" + esc(w.name) + "</span></div>";
-            }).join("") + "</div>"
+          ? '<div class="wal-cap">转到哪个账户</div>' + walletPills("setToWallet", ui.toWalletId, ui.walletId)
           : "") +
       "</div>";
 
@@ -609,7 +643,7 @@
 
     // 前 6 类画环，剩下的合并成「其他」，明细表与图例完全对齐。
     // 颜色用同色相明度阶梯（墨 → 浅灰），不用彩虹色分类。
-    var STEPS = ["#0e0e10", "#3c3c44", "#6a6a72", "#9a9aa2", "#c4c4cc", "#e2e2e8"];
+    var STEPS = ["#0e0e10", "#3a3a44", "#5f5f6a", "#87878f", "#adadb5", "#cfcfd6"];
     var head = rows.slice(0, 6).map(function (t) {
       var tag = tagById(t.id);
       return { id: t.id, name: tag.name, cents: t.cents, pct: t.pct };
@@ -657,7 +691,7 @@
             : s.list.filter(function (e) { return e.flow === flow && e.tagId === t.id; }).length;
           var pct = Math.round(t.pct * 100);
           return '<div class="rk">' +
-            '<div class="g">' + iconOf(t.id) + "</div>" +
+            '<div class="g">' + tagIcon(t) + "</div>" +
             '<div class="body">' +
               '<div class="r1"><span class="nm">' + esc(t.name) + "</span>" +
                 '<span class="amt">¥' + money(t.cents) + "</span></div>" +
@@ -998,19 +1032,270 @@
     try { size = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) { size = 0; }
     return (
       '<div class="topbar"><div><h1>设置</h1><div class="sub">数据都在本机</div></div></div>' +
+      '<div class="card"><div class="card-title">管理</div>' +
+        '<div class="list-row" data-act="goWallets"><span>账户</span><span class="hint">' + db.wallets.length + " 个 · 增改删 ›</span></div>" +
+        '<div class="list-row" data-act="goTags"><span>分类</span><span class="hint">' + db.tags.length + " 个 · 增改删 ›</span></div>" +
+      "</div>" +
       '<div class="card"><div class="card-title">数据</div>' +
         '<div class="list-row"><span>记录条数</span><span class="hint">' + db.entries.length + " 条</span></div>" +
         '<div class="list-row"><span>占用空间</span><span class="hint">' + (size / 1024).toFixed(1) + " KB</span></div>" +
         '<div class="list-row" data-act="exportData"><span>导出备份</span><span class="hint">下载 JSON ›</span></div>' +
+        '<div class="list-row" data-act="importJson"><span>恢复备份</span><span class="hint">从 JSON 还原 ›</span></div>' +
         '<div class="list-row" data-act="exportCsv"><span>导出 CSV</span><span class="hint">Excel 可打开 ›</span></div>' +
-        '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从文件恢复 ›</span></div>' +
+        '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从表格导入 ›</span></div>' +
         '<div class="list-row" data-act="resetData"><span>清空重来</span><span class="hint">全部记录与账户重置 ›</span></div>' +
       "</div>" +
       '<div class="card"><div class="card-title">关于</div>' +
+        '<div class="list-row"><span>版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
         '<div class="list-row"><span>数据位置</span><span class="hint">本机 localStorage</span></div>' +
-        '<div class="list-row"><span>联网</span><span class="hint">不需要</span></div>' +
+        '<div class="list-row"><span>联网</span><span class="hint">只有报价需要</span></div>' +
       "</div>"
     );
+  }
+
+  /* ================= 账户管理 ================= */
+
+  function viewWallets() {
+    var bal = walletBalances();
+    var rows = db.wallets.map(function (w) {
+      var used = db.entries.filter(function (e) {
+        return e.walletId === w.id || e.toWalletId === w.id;
+      }).length;
+      return '<div class="mrow" data-act="editWallet" data-id="' + esc(w.id) + '">' +
+        '<div class="g">' + iconOf(w.id, iconOf("w_cash")) + "</div>" +
+        '<div class="body">' +
+          '<div class="nm">' + esc(w.name) + "</div>" +
+          '<div class="sub">期初 ' + cash(w.opening) + (used ? " · " + used + " 笔" : " · 还没用过") + "</div>" +
+        "</div>" +
+        '<div class="bal">' + cash(bal[w.id] || 0) + "</div>" +
+        '<span class="mrow-act del" aria-label="删除" data-act="delWallet" data-id="' + esc(w.id) + '">' + iconOf("trash") + "</span>" +
+      "</div>";
+    }).join("");
+
+    var editing = ui.editWalletId ? db.wallets.filter(function (w) { return w.id === ui.editWalletId; })[0] : null;
+
+    return (
+      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>账户</h1><div class="icon-btn"></div></div>' +
+      '<div class="card"><div class="card-title">现有账户</div>' + rows + "</div>" +
+      '<div class="card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增账户") + "</div>" +
+        '<div class="field-row"><label>名称</label><input data-act="wName" placeholder="比如 招商银行" value="' + esc(ui.wName) + '"></div>' +
+        '<div class="field-row"><label>期初余额</label><input data-act="wOpening" type="number" inputmode="decimal" placeholder="0" value="' + esc(ui.wOpening) + '"></div>' +
+      "</div>" +
+      '<button class="btn-primary" data-act="saveWallet">' + (editing ? "保存修改" : "添加账户") + "</button>" +
+      (editing ? '<button class="btn-ghost" data-act="cancelWallet">取消</button>' : "") +
+      '<div class="card"><div class="card-title">说明</div>' +
+        '<div class="list-row"><span>期初余额</span><span class="hint">开始记账时这个账户里有多少钱</span></div>' +
+        '<div class="list-row"><span>删除</span><span class="hint">有记录的账户不能删，先改记录</span></div>' +
+      "</div>"
+    );
+  }
+
+  function saveWallet() {
+    var name = String(ui.wName || "").trim();
+    if (!name) { toast("填个名字"); return; }
+    var opening = parseFloat(ui.wOpening);
+    if (!isFinite(opening)) opening = 0;
+    var openingCents = Math.round(opening * 100);
+
+    if (ui.editWalletId) {
+      var w = db.wallets.filter(function (x) { return x.id === ui.editWalletId; })[0];
+      if (!w) return;
+      w.name = name;
+      w.opening = openingCents;
+      toast("已保存");
+    } else {
+      if (db.wallets.some(function (x) { return x.name === name; })) { toast("已有同名账户", null, null, 2400); return; }
+      db.wallets.push({
+        id: uid("w"), name: name, glyph: "•", opening: openingCents,
+        color: "#767680", tint: "#F1F1F4"
+      });
+      toast("已添加 " + name);
+    }
+    ui.wName = ""; ui.wOpening = ""; ui.editWalletId = "";
+    save();
+    render();
+  }
+
+  function delWallet(id) {
+    var w = db.wallets.filter(function (x) { return x.id === id; })[0];
+    if (!w) return;
+    var used = db.entries.filter(function (e) {
+      return e.walletId === id || e.toWalletId === id;
+    }).length;
+    if (used) { toast("「" + w.name + "」还有 " + used + " 笔记录在用，先改到别的账户", null, null, 3000); return; }
+    if (db.wallets.length <= 1) { toast("至少留一个账户", null, null, 2400); return; }
+    if (!confirm("删除账户「" + w.name + "」？")) return;
+    db.wallets = db.wallets.filter(function (x) { return x.id !== id; });
+    save();
+    render();
+    toast("已删除");
+  }
+
+  /* ================= 分类管理 ================= */
+
+  var TAG_ICON_CHOICES = ["t_food", "t_car", "t_buy", "t_home", "t_fun", "t_med", "t_study", "t_misc", "t_pay", "t_div"];
+
+  function viewTags() {
+    var editing = ui.editTagId ? db.tags.filter(function (t) { return t.id === ui.editTagId; })[0] : null;
+    var flow = editing ? editing.flow : (ui.tagFlow || "out");
+
+    function group(f, label) {
+      var list = db.tags.filter(function (t) { return t.flow === f; });
+      if (!list.length) return "";
+      return '<div class="card"><div class="card-title">' + label + "（" + list.length + "）</div>" +
+        list.map(function (t) {
+          var used = db.entries.filter(function (e) { return e.tagId === t.id; }).length;
+          return '<div class="mrow" data-act="editTag" data-id="' + esc(t.id) + '">' +
+            '<div class="g">' + tagIcon(t) + "</div>" +
+            '<div class="body"><div class="nm">' + esc(t.name) + "</div>" +
+              '<div class="sub">' + (used ? used + " 笔记录" : "还没用过") + "</div></div>" +
+            '<span class="mrow-act del" aria-label="删除" data-act="delTag" data-id="' + esc(t.id) + '">' + iconOf("trash") + "</span>" +
+          "</div>";
+        }).join("") + "</div>";
+    }
+
+    var iconPick = TAG_ICON_CHOICES.map(function (ic) {
+      return '<span class="icon-pick' + (ui.tagIcon === ic ? " on" : "") + '" data-act="pickTagIcon" data-v="' + ic + '">' +
+        iconOf(ic) + "</span>";
+    }).join("");
+
+    return (
+      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分类</h1><div class="icon-btn"></div></div>' +
+      group("out", "支出") + group("in", "收入") +
+      '<div class="card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增分类") + "</div>" +
+        '<div class="field-row"><label>名称</label><input data-act="tagName" placeholder="比如 宠物" value="' + esc(ui.tagName) + '"></div>' +
+        '<div class="field-row"><label>类型</label>' +
+          '<span class="seg-inline">' +
+            '<span class="si' + (flow === "out" ? " on" : "") + '" data-act="setTagFlow" data-v="out">支出</span>' +
+            '<span class="si' + (flow === "in" ? " on" : "") + '" data-act="setTagFlow" data-v="in">收入</span>' +
+          "</span>" +
+        "</div>" +
+        '<div class="field-row icon-row"><label>图标</label></div>' +
+        '<div class="icon-grid">' + iconPick + "</div>" +
+      "</div>" +
+      '<button class="btn-primary" data-act="saveTag">' + (editing ? "保存修改" : "添加分类") + "</button>" +
+      (editing ? '<button class="btn-ghost" data-act="cancelTag">取消</button>' : "") +
+      '<div class="card"><div class="card-title">说明</div>' +
+        '<div class="list-row"><span>删除</span><span class="hint">有记录的分类不能删</span></div>' +
+        '<div class="list-row"><span>转账</span><span class="hint">转账不需要分类</span></div>' +
+      "</div>"
+    );
+  }
+
+  function saveTag() {
+    var name = String(ui.tagName || "").trim();
+    if (!name) { toast("填个名字"); return; }
+    var flow = ui.tagFlow === "in" ? "in" : "out";
+    var icon = ui.tagIcon || "t_misc";
+    if (ui.editTagId) {
+      var t = db.tags.filter(function (x) { return x.id === ui.editTagId; })[0];
+      if (!t) return;
+      var dup = db.tags.some(function (x) { return x.id !== t.id && x.name === name && x.flow === flow; });
+      if (dup) { toast("同类下已有这个名字", null, null, 2400); return; }
+      t.name = name; t.flow = flow; t.customIcon = icon;
+      toast("已保存");
+    } else {
+      if (db.tags.some(function (x) { return x.name === name && x.flow === flow; })) { toast("同类下已有这个名字", null, null, 2400); return; }
+      db.tags.push({
+        id: uid("t"), name: name, glyph: "•", flow: flow,
+        seq: 99, color: "#767680", tint: "#F1F1F4", customIcon: icon
+      });
+      toast("已添加 " + name);
+    }
+    ui.tagName = ""; ui.editTagId = ""; ui.tagIcon = "";
+    save();
+    render();
+  }
+
+  function delTag(id) {
+    var t = db.tags.filter(function (x) { return x.id === id; })[0];
+    if (!t) return;
+    var used = db.entries.filter(function (e) { return e.tagId === id; }).length;
+    if (used) { toast("「" + t.name + "」还有 " + used + " 笔记录在用，先改分类", null, null, 3000); return; }
+    var sameFlow = db.tags.filter(function (x) { return x.flow === t.flow; });
+    if (sameFlow.length <= 1) { toast("这类至少留一个分类", null, null, 2400); return; }
+    if (!confirm("删除分类「" + t.name + "」？")) return;
+    db.tags = db.tags.filter(function (x) { return x.id !== id; });
+    save();
+    render();
+    toast("已删除");
+  }
+
+  /* ================= 搜索 =================
+     记录一多就只能一个月一个月翻，这是记账软件最容易缺的一环。
+     备注 / 分类名 / 账户名 / 金额 / 日期 都能搜，跨全部月份。 */
+
+  function matchEntry(e, kw) {
+    if (!kw) return false;
+    var t = tagById(e.tagId);
+    var w = walletById(e.walletId);
+    var tw = e.toWalletId ? walletById(e.toWalletId) : null;
+    var hay = [
+      e.memo || "", t.name || "", w.name || "", tw ? tw.name : "",
+      (e.cents / 100).toFixed(2), e.day || ""
+    ].join(" ").toLowerCase();
+    if (hay.indexOf(kw) >= 0) return true;
+    // 金额只输整数也要命中：388 能搜到 388.00 / 388.50
+    var num = parseFloat(kw);
+    if (isFinite(num) && num > 0) {
+      if (Math.abs(e.cents - Math.round(num * 100)) <= 1) return true;
+    }
+    return false;
+  }
+
+  function searchRowsHtml(q) {
+    var kw = String(q || "").trim().toLowerCase();
+    if (!kw) return '<div class="empty">备注、分类、账户、金额都能搜</div>';
+    var hits = db.entries.filter(function (e) { return matchEntry(e, kw); });
+    hits.sort(function (a, b) {
+      if (a.day !== b.day) return a.day < b.day ? 1 : -1;
+      return (b.at || 0) - (a.at || 0);
+    });
+    if (!hits.length) return '<div class="empty">没找到「' + esc(q) + '」</div>';
+
+    var sumOut = 0, sumIn = 0;
+    hits.forEach(function (e) {
+      if (e.flow === "out") sumOut += e.cents;
+      else if (e.flow === "in") sumIn += e.cents;
+    });
+    var head = '<div class="search-sum">共 <b>' + hits.length + "</b> 笔" +
+      (sumOut ? " · 支出 ¥" + money(sumOut) : "") +
+      (sumIn ? " · 收入 ¥" + money(sumIn) : "") + "</div>";
+
+    var rows = hits.slice(0, 300).map(function (e) {
+      var t = tagById(e.tagId);
+      var w = walletById(e.walletId);
+      var tw = e.toWalletId ? walletById(e.toWalletId) : null;
+      var title = esc(t.name) + (e.memo ? " · " + esc(e.memo) : "");
+      var sub = e.day + " · " + esc(e.flow === "move" ? w.name + " → " + (tw ? tw.name : "?") : w.name);
+      var amt = e.flow === "out" ? "-¥" + money(e.cents)
+        : e.flow === "in" ? "+¥" + money(e.cents)
+        : "¥" + money(e.cents);
+      return '<div class="mrow" data-act="openEntry" data-id="' + esc(e.id) + '">' +
+        '<div class="g">' + tagIcon(t) + "</div>" +
+        '<div class="body"><div class="nm">' + title + "</div>" +
+          '<div class="sub">' + sub + "</div></div>" +
+        '<div class="bal ' + (e.flow === "in" ? "in" : "") + '">' + amt + "</div>" +
+      "</div>";
+    }).join("");
+
+    return head + rows +
+      (hits.length > 300 ? '<div class="search-more">只显示最近 300 笔，关键词再收窄一点</div>' : "");
+  }
+
+  function viewSearch() {
+    return (
+      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>搜索</h1><div class="icon-btn"></div></div>' +
+      '<div class="search-box"><input data-act="searchQ" type="search" inputmode="search" ' +
+        'autocomplete="off" placeholder="备注、分类、账户或金额" value="' + esc(ui.searchQ) + '"></div>' +
+      '<div class="search-results">' + searchRowsHtml(ui.searchQ) + "</div>"
+    );
+  }
+
+  /* 只重画结果区：整页 render 会让输入框失焦 */
+  function paintSearch() {
+    var box = document.querySelector(".search-results");
+    if (box) box.innerHTML = searchRowsHtml(ui.searchQ);
   }
 
   /* ================= 路由与渲染 ================= */
@@ -1048,12 +1333,18 @@
     else if (r.view === "assets") body = viewAssets();
     else if (r.view === "holdings") body = viewHoldings();
     else if (r.view === "overview") body = viewOverview();
+    else if (r.view === "wallets") body = viewWallets();
+    else if (r.view === "tags") body = viewTags();
+    else if (r.view === "search") body = viewSearch();
     else if (r.view === "config") body = viewConfig();
     else body = viewBook();
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
-    var activeKey = (r.view === "holdings" || r.view === "overview") ? "assets" : r.view;
+    var activeKey = (r.view === "holdings" || r.view === "overview") ? "assets"
+      : (r.view === "wallets" || r.view === "tags") ? "config"
+      : r.view === "search" ? "book"
+      : r.view;
     var tabs = isEntry
       ? ""
       : '<nav class="tabbar">' + TABS.map(function (t) {
@@ -1061,7 +1352,8 @@
             '<span class="ic">' + iconSolid(t.ic) + "</span><span>" + t.name + "</span></a>";
         }).join("") + "</nav>";
 
-    var fab = (r.view === "book" || r.view === "stats")
+    // ＋ 只留在账本页：分析页是看数据的地方，多个悬浮按钮会压住右侧金额
+    var fab = (r.view === "book")
       ? '<a class="fab" href="#/entry" aria-label="记一笔">＋</a>'
       : "";
 
@@ -1084,7 +1376,7 @@
 
   var _toastEl = null, _toastTimer = null;
   /* 带动作的提示：用于「删除后可撤销」这类操作，停留时间更长，点按钮才执行 */
-  function toast(msg, actionText, onAction) {
+  function toast(msg, actionText, onAction, ms) {
     if (_toastEl) { _toastEl.remove(); _toastEl = null; }
     if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
     var el = document.createElement("div");
@@ -1114,7 +1406,49 @@
         el.remove();
         if (_toastEl === el) _toastEl = null;
       }, 220);
-    }, actionText ? 5000 : 1200);
+    }, actionText ? 5000 : (ms || 1200));
+  }
+
+  /* 多行内容用底部面板展示：alert 在手机上装不下、不能滚动、不能复制 */
+  function reportSheet(title, sub, lines) {
+    var old = document.querySelector(".sheet-mask");
+    if (old) old.remove();
+    var mask = document.createElement("div");
+    mask.className = "sheet-mask";
+    var sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.innerHTML =
+      '<div class="sheet-grab"></div>' +
+      "<h2></h2>" +
+      '<div class="sheet-sub"></div>' +
+      '<div class="sheet-list"></div>' +
+      '<div class="sheet-acts">' +
+        '<button class="btn-ghost" data-sheet="copy">复制</button>' +
+        '<button class="btn-primary" data-sheet="close">知道了</button>' +
+      "</div>";
+    sheet.querySelector("h2").textContent = title;
+    sheet.querySelector(".sheet-sub").textContent = sub || "";
+    var list = sheet.querySelector(".sheet-list");
+    (lines || []).forEach(function (x) {
+      var row = document.createElement("div");
+      row.textContent = x;
+      list.appendChild(row);
+    });
+    function close() { mask.remove(); }
+    mask.addEventListener("click", function (ev) { if (ev.target === mask) close(); });
+    sheet.addEventListener("click", function (ev) {
+      var b = ev.target.closest("[data-sheet]");
+      if (!b) return;
+      if (b.getAttribute("data-sheet") === "close") { close(); return; }
+      var text = title + "\n" + (sub || "") + "\n" + (lines || []).join("\n");
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast("已复制"); }, function () { toast("复制不了，长按文字选", null, null, 2600); });
+      } else {
+        toast("复制不了，长按文字选", null, null, 2600);
+      }
+    });
+    mask.appendChild(sheet);
+    document.body.appendChild(mask);
   }
 
   /* 连点月份按钮时把多次位移合并成一次渲染：
@@ -1175,7 +1509,7 @@
     var payload = {
       flow: ui.flow,
       cents: val,
-      tagId: ui.flow === "move" ? db.tags[0].id : ui.tagId,
+      tagId: ui.flow === "move" ? (db.tags[0] ? db.tags[0].id : "t_misc") : ui.tagId,
       walletId: ui.walletId,
       toWalletId: ui.flow === "move" ? ui.toWalletId : undefined,
       day: ui.day,
@@ -1215,8 +1549,10 @@
     ui.flow = "out";
     var f = db.tags.filter(function (t) { return t.flow === "out"; })[0] || db.tags[0];
     ui.tagId = f ? f.id : "t_food";
-    ui.walletId = "w_pay";
-    ui.toWalletId = "w_bank";
+    // 账户可能被用户删过，不能写死 id
+    var ws = db.wallets || [];
+    ui.walletId = ws[0] ? ws[0].id : "w_pay";
+    ui.toWalletId = ws[1] ? ws[1].id : (ws[0] ? ws[0].id : "w_bank");
     ui._loaded = false;
   }
 
@@ -1243,6 +1579,59 @@
     a.download = "随手账备份-" + ymd(new Date()) + ".json";
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+  }
+
+  /* ================= 备份恢复 =================
+     能导出不能导入 = 备份没有意义。这里做完整还原：
+     先校验结构，再让用户确认覆盖，最后整份替换。 */
+
+  function importJson() {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onerror = function () { toast("文件读取失败"); };
+      reader.onload = function () {
+        var raw = null;
+        try { raw = JSON.parse(String(reader.result || "null")); } catch (e) { raw = null; }
+        if (!raw || !Array.isArray(raw.entries)) {
+          reportSheet(
+            "这个文件不是随手账的备份",
+            "备份文件里必须有 entries 数组。请选「导出备份」下载的那个 .json 文件。",
+            ["选中的文件：解析" + (raw ? "成功，但没有 entries 数组" : "失败，不是合法 JSON"),
+             "从别的记账软件导出的数据，可以走「导入 CSV」"]
+          );
+          return;
+        }
+        var n = raw.entries.length;
+        var nw = Array.isArray(raw.wallets) ? raw.wallets.length : 0;
+        var nt = Array.isArray(raw.tags) ? raw.tags.length : 0;
+        var nh = Array.isArray(raw.holdings) ? raw.holdings.length : 0;
+        var msg = "将用备份覆盖当前数据：\n\n" +
+          "备份里有 " + n + " 条记录、" + nw + " 个账户、" + nt + " 个分类" +
+          (nh ? "、" + nh + " 只持仓" : "") + "\n" +
+          "当前有 " + db.entries.length + " 条记录\n\n" +
+          "覆盖后当前数据无法找回，继续？";
+        if (!confirm(msg)) return;
+        db = {
+          wallets: raw.wallets && raw.wallets.length ? raw.wallets : DEFAULTS.wallets.slice(),
+          tags: mergeTags(raw.tags),
+          entries: raw.entries,
+          holdings: Array.isArray(raw.holdings) ? raw.holdings : []
+        };
+        save();
+        render();
+        toast("已恢复 " + n + " 条记录");
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+    input.click();
   }
 
   /* ================= CSV 导入 / 导出 =================
@@ -1467,15 +1856,20 @@
 
   function doImportCsv(text) {
     var rows = parseCsvText(String(text || "").replace(/^\uFEFF/, ""));
-    if (rows.length < 2) { alert("这个文件里没有数据行。"); return; }
+    if (rows.length < 2) { toast("这个文件里只有表头，没有数据行", null, null, 2600); return; }
 
     var cols = mapHeader(rows[0]);
     var missing = [];
     if (cols.day == null) missing.push("日期");
     if (cols.cents == null) missing.push("金额");
     if (missing.length) {
-      alert("表头缺少必需的列：" + missing.join("、") +
-        "\n\n至少需要 日期、金额 两列；方向、分类、账户、备注可选。");
+      reportSheet(
+        "表头少了必需的列",
+        "至少要有「日期」和「金额」两列；方向、分类、账户、备注是可选的。",
+        ["这次没找到：" + missing.join("、"),
+         "识别到的表头：" + rows[0].join(" | "),
+         "可以直接用「导出 CSV」下载的模板改，表头就是标准写法。"]
+      );
       return;
     }
 
@@ -1530,7 +1924,8 @@
     }
 
     if (!valid.length) {
-      alert("没有可导入的行。\n\n" + (errors.length ? errors.slice(0, 30).join("\n") : "文件里只有表头。"));
+      reportSheet("没有可导入的行", "文件读到了，但一行都没能识别。",
+        errors.length ? errors.slice(0, 200) : ["文件里只有表头。"]);
       return;
     }
 
@@ -1551,8 +1946,9 @@
     if (errors.length) msg += "\n另有 " + errors.length + " 行解析失败，导入后会列出。";
 
     if (!fresh.length) {
-      alert("没有需要写入的记录：全部 " + dup + " 条都与现有记录重复。" +
-        (errors.length ? "\n\n解析失败 " + errors.length + " 行。" : ""));
+      reportSheet("这些记录之前都导过了",
+        "全部 " + dup + " 条与现有记录重复，不会重复写入。",
+        errors.length ? ["解析失败 " + errors.length + " 行："].concat(errors.slice(0, 200)) : ["没有需要新增的记录。"]);
       return;
     }
     if (!confirm(msg)) return;
@@ -1570,9 +1966,13 @@
     render();
 
     if (errors.length) {
-      var detail = errors.slice(0, 30).join("\n");
-      if (errors.length > 30) detail += "\n…共 " + errors.length + " 行失败";
-      setTimeout(function () { alert("下面这些行没有导入：\n\n" + detail); }, 80);
+      setTimeout(function () {
+        reportSheet(
+          "有 " + errors.length + " 行没有导入",
+          "已成功写入 " + fresh.length + " 条。下面这些行没能识别，改好 CSV 可以再导一次（已经导入过的会自动跳过）。",
+          errors.slice(0, 200)
+        );
+      }, 120);
     }
   }
 
@@ -1620,10 +2020,16 @@
   }
 
   function resetData() {
-    if (!confirm("清空所有记录？此操作不可撤销。")) return;
+    if (!confirm("清空所有记录、账户、持仓？\n\n清空前会自动留一份快照，点完 5 秒内能撤销。")) return;
+    var snapshot = JSON.stringify(db);
     db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [], holdings: [] };
     save();
-    toast("已清空");
+    toast("已清空", "撤销", function () {
+      try { db = JSON.parse(snapshot); } catch (e) { return; }
+      save();
+      render();
+      toast("已恢复");
+    });
     render();
   }
 
@@ -1669,6 +2075,34 @@
     else if (act === "exportCsv") exportCsv();
     else if (act === "importCsv") importCsv();
     else if (act === "resetData") resetData();
+    else if (act === "goSearch") { ui.searchQ = ""; location.hash = "#/search"; }
+    else if (act === "openEntry") { ui._loaded = false; location.hash = "#/entry?id=" + id; }
+    else if (act === "importJson") importJson();
+    else if (act === "goWallets") { ui.editWalletId = ""; ui.wName = ""; ui.wOpening = ""; location.hash = "#/wallets"; }
+    else if (act === "goTags") { ui.editTagId = ""; ui.tagName = ""; ui.tagIcon = ""; location.hash = "#/tags"; }
+    else if (act === "saveWallet") saveWallet();
+    else if (act === "editWallet") {
+      var w0 = db.wallets.filter(function (x) { return x.id === id; })[0];
+      ui.editWalletId = id;
+      ui.wName = w0 ? w0.name : "";
+      ui.wOpening = w0 ? String((w0.opening || 0) / 100) : "";
+      render();
+    }
+    else if (act === "delWallet") delWallet(id);
+    else if (act === "cancelWallet") { ui.editWalletId = ""; ui.wName = ""; ui.wOpening = ""; render(); }
+    else if (act === "saveTag") saveTag();
+    else if (act === "editTag") {
+      var t0 = db.tags.filter(function (x) { return x.id === id; })[0];
+      ui.editTagId = id;
+      ui.tagName = t0 ? t0.name : "";
+      ui.tagFlow = t0 ? t0.flow : "out";
+      ui.tagIcon = t0 ? (t0.customIcon || (ICONS[t0.id] ? t0.id : "t_misc")) : "";
+      render();
+    }
+    else if (act === "delTag") delTag(id);
+    else if (act === "cancelTag") { ui.editTagId = ""; ui.tagName = ""; ui.tagIcon = ""; render(); }
+    else if (act === "pickTagIcon") { ui.tagIcon = v; render(); }
+    else if (act === "setTagFlow") { ui.tagFlow = v; render(); }
   });
 
   document.addEventListener("input", function (ev) {
@@ -1680,6 +2114,10 @@
     else if (act === "hName") ui.hName = el.value;
     else if (act === "hShares") ui.hShares = el.value;
     else if (act === "hCost") ui.hCost = el.value;
+    else if (act === "wName") ui.wName = el.value;
+    else if (act === "wOpening") ui.wOpening = el.value;
+    else if (act === "tagName") ui.tagName = el.value;
+    else if (act === "searchQ") { ui.searchQ = el.value; paintSearch(); }
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
