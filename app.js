@@ -298,6 +298,7 @@
     quoteState: "idle",
     quoteFailAt: 0,
     quoteAt: "",
+    quoteDoneAt: 0,
     /* 账户 / 分类管理的表单状态 */
     editWalletId: "",
     wName: "",
@@ -832,8 +833,25 @@
      —— 分析服务跑在用户自己电脑上，关机就没了，记账不能因此不可用 */
 
   var QUOTE_API = "https://v.yutiqu.eu.cc/api/v1/quotes";
-  var QUOTE_TTL = 24 * 3600 * 1000;   // 24 小时
+  /* 行情新鲜度：交易时段 60 秒算旧，其余时段 15 分钟算旧。
+     原来写死 24 小时，后端每分钟刷新的数据前端根本用不上。 */
+  var QUOTE_TTL_LIVE = 60 * 1000;
+  var QUOTE_TTL_IDLE = 15 * 60 * 1000;
+  var QUOTE_POLL_MS = 60 * 1000;      // 停在行情相关页面时的轮询间隔
   var QUOTE_RETRY_GAP = 60 * 1000;    // 失败后冷却 60 秒
+
+  /* A 股交易时段（不含节假日，节假日由后端数据源自然返回上一交易日收盘价） */
+  function inTradingHours(d) {
+    d = d || new Date();
+    var day = d.getDay();
+    if (day === 0 || day === 6) return false;
+    var m = d.getHours() * 60 + d.getMinutes();
+    return (m >= 9 * 60 + 30 && m <= 11 * 60 + 30) || (m >= 13 * 60 && m <= 15 * 60);
+  }
+
+  function quoteTtl() {
+    return inTradingHours() ? QUOTE_TTL_LIVE : QUOTE_TTL_IDLE;
+  }
 
   /* 输 600519 自动补成 600519.SH，省得记后缀 */
   function normCode(raw) {
@@ -849,8 +867,9 @@
   function holdingsNeedQuote() {
     if (!db.holdings || !db.holdings.length) return false;
     var now = Date.now();
+    var ttl = quoteTtl();
     return db.holdings.some(function (h) {
-      return !h.priceAt || now - h.priceAt > QUOTE_TTL;
+      return !h.priceAt || now - h.priceAt > ttl;
     });
   }
 
@@ -894,15 +913,39 @@
         ui.quoteState = "ok";
         ui.quoteFailAt = 0;
         ui.quoteAt = (j && j.as_of) || "";
-        // 只在仍停在持仓页时重绘，避免用户已切页却被拉回来重排
-        if (parseHash().view === "holdings") render();
+        ui.quoteDoneAt = Date.now();
+        // 三个页面都用到市值：只在当前仍停在其中之一时重绘，避免把用户拉回别的页
+        var v = parseHash().view;
+        if (v === "holdings" || v === "assets" || v === "overview") render();
       })
       .catch(function () {
         done();
         ui.quoteState = "fail";
         ui.quoteFailAt = Date.now();
-        if (parseHash().view === "holdings") render();
+        var v2 = parseHash().view;
+        if (v2 === "holdings" || v2 === "assets" || v2 === "overview") render();
       });
+  }
+
+  /* 停在行情相关页面时自动轮询：交易时段每分钟一次，其余时段靠 TTL 自然降频 */
+  var _quoteTimer = null;
+
+  function stopQuotePoll() {
+    if (_quoteTimer) { clearInterval(_quoteTimer); _quoteTimer = null; }
+  }
+
+  function startQuotePoll() {
+    stopQuotePoll();
+    if (!db.holdings || !db.holdings.length) return;
+    var v = parseHash().view;
+    if (v !== "holdings" && v !== "assets" && v !== "overview") return;
+    _quoteTimer = setInterval(function () {
+      var cur = parseHash().view;
+      if (cur !== "holdings" && cur !== "assets" && cur !== "overview") { stopQuotePoll(); return; }
+      if (document.hidden) return;          // 后台标签页不发请求
+      if (ui.quoteState === "loading") return;
+      refreshQuotes(false);                 // TTL 没到就自己跳过，等于自动降频
+    }, QUOTE_POLL_MS);
   }
 
   function quoteLineText() {
@@ -910,9 +953,19 @@
     if (ui.quoteState === "fail") return "报价更新失败 · 用手工价";
     var stale = (db.holdings || []).filter(function (h) { return !h.priceAt; }).length;
     if (stale) return stale + " 只待更新报价";
-    var ts = String(ui.quoteAt || "");
-    var hm = ts.length >= 16 ? ts.slice(11, 16) : "";
-    return hm ? "报价 " + hm + " 更新" : "报价已更新";
+    // 相对时间比绝对时刻更直观，尤其是每分钟都在刷新的时候
+    var done = ui.quoteDoneAt || 0;
+    if (!done) {
+      var ts = String(ui.quoteAt || "");
+      var hm = ts.length >= 16 ? ts.slice(11, 16) : "";
+      return hm ? "报价 " + hm + " 更新" : "报价已更新";
+    }
+    var ago = Math.round((Date.now() - done) / 1000);
+    if (ago < 10) return inTradingHours() ? "实时报价 · 刚刚更新" : "报价 · 刚刚更新";
+    if (ago < 60) return "报价 · " + ago + " 秒前";
+    var min = Math.round(ago / 60);
+    if (min < 60) return "报价 · " + min + " 分钟前";
+    return "报价 · " + Math.round(min / 60) + " 小时前";
   }
 
   function viewHoldings() {
@@ -1370,6 +1423,8 @@
       var v = app.querySelector(".view");
       if (v) setTimeout(function () { v.classList.remove("enter"); }, 300);
     }
+    // 行情页自动轮询：换到别的页会把定时器停掉，不白跑请求
+    startQuotePoll();
   }
 
   /* ================= 交互 ================= */
