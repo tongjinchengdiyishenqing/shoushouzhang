@@ -1419,6 +1419,16 @@ html, body {
   z-index: 1;
 }
 
+/* 同步码大字展示 */
+.mx-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 14px var(--pad);
+  color: var(--ink);
+}
+
 
 
 
