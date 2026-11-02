@@ -1495,3 +1495,38 @@ html, body {
   border-radius: 50%;
   background: var(--ink);
 }
+
+/* ---------- 记账键盘：最后一排 5 格（学钱往：再记 / 删除 常驻左下角） ---------- */
+.entry-page .pad .key.again {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: transparent;
+}
+.entry-page .pad .key.again:active { background: var(--surface); }
+.entry-page .pad .key.del {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--neg);
+}
+/* 5 格时每格收窄，字号略降，避免挤出边界 */
+.entry-page .pad { --key-gap: 7px; }
+.entry-page .pad .key { font-size: 22px; }
+.entry-page .pad .key.go,
+.entry-page .pad .key.again,
+.entry-page .pad .key.del,
+.entry-page .pad .key.fn { font-size: 14px; }
+
+/* ---------- 日期快捷：昨天 / 前天 ---------- */
+.day-quick {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 6px 11px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.day-quick:active { opacity: 0.6; }
