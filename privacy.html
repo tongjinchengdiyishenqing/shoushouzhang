@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>隐私政策与用户协议 · 随手账</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .privacy {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 var(--pad) 72px;
+    overflow-x: hidden;
+  }
+  .privacy .back {
+    display: inline-block;
+    margin: 18px 0 4px;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .privacy h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 8px 0 4px;
+  }
+  .privacy .meta {
+    font-size: 14px;
+    color: var(--ink-3);
+    line-height: 1.7;
+    margin: 0 0 24px;
+  }
+  .privacy h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 28px 0 10px;
+  }
+  .privacy p {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    margin: 0 0 12px;
+  }
+  .privacy ul {
+    margin: 0 0 12px;
+    padding-left: 1.3em;
+  }
+  .privacy li {
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    margin: 0 0 6px;
+  }
+  .privacy strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .privacy .note {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--r-block);
+    padding: 14px 16px;
+  }
+  .privacy .note p {
+    margin: 0;
+  }
+  .privacy .footer {
+    margin-top: 36px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  .privacy .footer a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+<div class="privacy">
+
+  <a class="back" href="index.html">&larr; 返回随手账</a>
+  <h1>隐私政策与用户协议</h1>
+  <p class="meta">版本 v1.0 &middot; 生效日期：2026 年 11 月 2 日</p>
+
+  <h2>一、我们收集什么</h2>
+  <p>随手账只收集为你提供记账与同步服务所必需的数据：</p>
+  <ul>
+    <li><strong>记账数据</strong>：你在 App 里输入的金额、分类、账户、备注、持仓信息。</li>
+    <li><strong>登录凭证</strong>：登录用的用户名和密码。密码经 PBKDF2-SHA256 算法 20 万轮哈希后存储，服务端不存储密码明文。</li>
+    <li><strong>设备登录记录</strong>：每次登录会生成一个访问令牌（token），服务端只保存该 token 的 SHA-256 摘要，不保存 token 原文。</li>
+  </ul>
+  <div class="note">
+    <p>随手账<strong>不收集</strong>通讯录、位置、相册、剪贴板内容，<strong>不接入</strong>任何第三方统计或广告 SDK。</p>
+  </div>
+
+  <h2>二、数据存在哪</h2>
+  <ul>
+    <li>记账数据<strong>默认只保存在你本机浏览器</strong>（localStorage）中。</li>
+    <li>当你登录并开启同步后，记账数据会在你的设备上完成加密，再上传到本项目的同步服务（当前为开发者自建服务，域名 v.yutiqu.eu.cc）。</li>
+    <li>加密密钥由你的「用户名 + 密码」在你的设备上派生，密钥不会发送到服务器。服务端只保存加密后的密文，没有你的密码无法解密。</li>
+  </ul>
+  <div class="note">
+    <p>因此，<strong>包括服务器管理员在内的任何人都无法查看你的账本内容</strong>。</p>
+  </div>
+
+  <h2>三、谁能看到</h2>
+  <ul>
+    <li><strong>只有你自己</strong>。服务端按账号隔离数据，一个账号只能访问自己的数据。</li>
+    <li>行情、估值数据来自公开数据源（如新浪财经），这类数据不含任何个人信息。</li>
+  </ul>
+
+  <h2>四、你的权利</h2>
+  <ul>
+    <li><strong>查看与导出</strong>：设置 &rarr; 数据 &rarr; 导出备份，可下载包含你全部记账数据的 JSON 文件。</li>
+    <li><strong>删除单条</strong>：在账本页点击该条记录 &rarr; 删除，删除后 5 秒内可撤销。</li>
+    <li><strong>注销账号</strong>：设置 &rarr; 账号 &rarr; 注销账号，将级联删除云端的设备记录、加密数据和账号本身。</li>
+  </ul>
+  <div class="note">
+    <p>注销后云端数据立即删除且<strong>不可恢复</strong>，请在操作前先导出备份。</p>
+  </div>
+
+  <h2>五、数据保留</h2>
+  <ul>
+    <li>未注销账号时，你的数据一直保留。</li>
+    <li>注销账号后，云端数据立即删除，无备份残留。本机浏览器中的数据由你自行清除（清除浏览器数据或卸载应用即可）。</li>
+  </ul>
+
+  <h2>六、未成年人</h2>
+  <p>本产品不面向 14 周岁以下未成年人。如果你未满 14 周岁，请不要使用本产品。</p>
+
+  <h2>七、联系方式</h2>
+  <p>如对本政策有任何疑问，请通过 [CONTACT_EMAIL] 与我们联系。</p>
+  <p>本政策如有变更，会在本页面更新并注明新的生效日期。</p>
+
+  <h2>八、生效日期与版本</h2>
+  <p>本政策版本 v1.0，自 2026 年 11 月 2 日起生效。</p>
+
+  <div class="footer">
+    <a href="index.html">&larr; 返回随手账</a>
+  </div>
+
+</div>
+</body>
+</html>
