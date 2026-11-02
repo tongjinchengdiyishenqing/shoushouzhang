@@ -1530,3 +1530,21 @@ html, body {
   cursor: pointer;
 }
 .day-quick:active { opacity: 0.6; }
+
+/* 键盘最后一排 5 格（00 / 0 / . / 再记 / 记下）：跨满整行后自己再分 5 列 */
+.pad-row-5 {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.pad-row-5 .key { height: 54px; }
+
+/* 持仓页：输入代码后查到的名称，作为提示显示在名称框里 */
+.field-row .name-hint {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.field-row .name-hint.live { color: var(--pos); }
