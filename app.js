@@ -1575,7 +1575,7 @@
      解析在 auto.js，这里只管交互：粘贴 → 识别 → 改分类 → 一次记下。
      用户改过的分类会记进 db.autoRules，同一个商户下次直接认。 */
   function autoState() {
-    if (!ui.auto) ui.auto = { text: "", items: [], skipped: [], parsed: false, err: "" };
+    if (!ui.auto) ui.auto = { text: "", items: [], skipped: [], parsed: false, err: "", loading: false };
     return ui.auto;
   }
 
@@ -1617,6 +1617,124 @@
     });
   }
 
+  /* 图片压缩：手机原图动辄 4MB，直接传又慢又费钱。
+     缩到长边 1200、JPEG 0.82，一般 100–250KB，识别精度足够。 */
+  function shrinkImage(file, maxSide) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {}
+        var scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var cv = document.createElement("canvas");
+        cv.width = w;
+        cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = function () {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        reject(new Error("这张图打不开"));
+      };
+      img.src = url;
+    });
+  }
+
+  function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+
+  /* 截图识别结果并进同一个确认列表——用户看到的界面和粘贴识别完全一样，
+     认可就点「全部记下」，不认可可以先改分类或删掉。 */
+  function autoApplyShot(result) {
+    var a = autoState();
+    a.loading = false;
+    if (!result) { a.err = "识别失败，再试一次"; render(); return; }
+    if (!result.ok) { a.err = result.error || "识别失败"; render(); return; }
+    if (!result.items || !result.items.length) {
+      a.err = "这张图里没找到付款信息。要是截的是订单页，请截「支付成功」那一屏。";
+      render();
+      return;
+    }
+
+    result.items.forEach(function (it) {
+      // 模型给的分类是中文名，先按名字匹配；匹配不上就用商户名走本地词表
+      var tag = it.category ? matchTag(it.category) : null;
+      if (!tag && window.SZAuto && it.merchant) {
+        var g = window.SZAuto.guessTag(it.merchant, it.flow, it.cents, 12, db.autoRules || {});
+        tag = db.tags.filter(function (t) { return t.id === g.tagId; })[0] || null;
+      }
+      if (!tag) {
+        var fallbackId = it.flow === "in" ? "t_side" : "t_misc";
+        tag = db.tags.filter(function (t) { return t.id === fallbackId; })[0] || db.tags[0];
+      }
+      a.items.unshift({
+        cents: it.cents,
+        flow: it.flow,
+        merchant: it.merchant || "",
+        memo: it.merchant || "",
+        day: it.day || todayStr(),
+        tagId: tag ? tag.id : "t_misc",
+        why: "截图识别" + (it.category ? " · " + it.category : ""),
+        raw: ""
+      });
+    });
+
+    a.parsed = true;
+    a.err = "";
+    render();
+    toast("认出 " + result.items.length + " 笔，确认一下");
+  }
+
+  /* 选图入口：手机上会同时给「拍照」和「相册」两个选项。
+     不写 capture 属性，强制拍照反而难用。 */
+  function autoPickImage() {
+    if (!auth || !auth.token) {
+      autoState().err = "截图识别要联网调模型，先在设置里登录一下";
+      render();
+      return;
+    }
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (!file) return;
+      var a = autoState();
+      a.loading = true;
+      a.err = "";
+      render();
+      shrinkImage(file, 1200)
+        .then(function (dataUrl) {
+          return apiFetch("/auto/ocr", {
+            method: "POST",
+            body: JSON.stringify({ image: dataUrl })
+          });
+        })
+        .then(function (r) {
+          if (r.status === 401) { handleAuthExpired(); return; }
+          if (!r.ok) {
+            var msg = (r.body && (r.body.error || r.body.detail)) || ("识别服务返回 " + r.status);
+            autoApplyShot({ ok: false, error: msg });
+            return;
+          }
+          autoApplyShot(r.body);
+        })
+        .catch(function (e) {
+          autoApplyShot({ ok: false, error: "网络不通，或者这张图太大" });
+        });
+    });
+    input.click();
+  }
+
   function autoCommit() {
     var a = autoState();
     if (!a.items.length) { toast("还没有可记的"); return; }
@@ -1647,7 +1765,9 @@
     a.text = "";
     render();
     toast("记下 " + n + " 笔");
-    syncPush();
+    /* 同步失败不该盖住「记完了」这个反馈：本机已经存好，
+       下一笔记账或进设置页会再推一次。这里吞掉异常是有意的。 */
+    syncPush().catch(function () {});
   }
 
   function viewAuto() {
@@ -1681,7 +1801,10 @@
 
     var result;
     if (a.err) {
-      result = '<div class="au-hint">' + esc(a.err) + "</div>";
+      result = '<div class="au-hint">' + esc(a.err) + "</div>" +
+        '<div class="au-btns au-btns-2">' +
+          '<button class="au-btn" data-act="goEntryManual">手动记一笔</button>' +
+        "</div>";
     } else if (a.items.length) {
       result = '<div class="au-list">' + rows + "</div>" +
         '<button class="btn-primary" data-act="autoCommit">全部记下（' + a.items.length + " 笔）</button>" +
@@ -1701,9 +1824,13 @@
       '<textarea class="au-input" data-act="autoText" placeholder="例：&#10;微信支付&#10;付款金额 ¥38.50&#10;收款方 美团外卖">' +
         esc(a.text) + "</textarea>" +
       '<div class="au-btns">' +
+        '<button class="au-btn primary" data-act="autoShot">截图识别</button>' +
         '<button class="au-btn" data-act="autoRead">读剪贴板</button>' +
-        '<button class="au-btn primary" data-act="autoRun">开始识别</button>' +
       "</div>" +
+      '<div class="au-btns au-btns-2">' +
+        '<button class="au-btn" data-act="autoRun">识别上面的文字</button>' +
+      "</div>" +
+      (a.loading ? '<div class="au-loading"><i></i>正在看这张图…</div>' : "") +
       result;
   }
 
@@ -2667,14 +2794,28 @@
      导出的列固定为 日期,方向,金额,分类,账户,备注（金额单位元，两位小数）。
      导入按表头别名识别列，逐行校验，失败的行集中报出来，不静默丢。 */
 
+  /* 列名映射。后几组是微信/支付宝导出账单的原始列名——
+     直接导官方账单就能认，不用先改模板。 */
   var CSV_HEAD = {
-    day: ["日期", "date", "day", "时间", "交易时间"],
-    flow: ["方向", "flow", "type", "收支", "类型"],
-    cents: ["金额", "amount", "money", "金额(元)", "金额（元）", "交易金额"],
-    tag: ["分类", "category", "tag", "类别", "标签"],
-    wallet: ["账户", "account", "wallet", "支付方式", "账户(卡)"],
-    memo: ["备注", "memo", "note", "remark", "说明"]
+    day: ["日期", "date", "day", "时间", "交易时间", "交易创建时间", "付款时间", "创建时间"],
+    flow: ["方向", "flow", "type", "收支", "类型", "收/支", "收／支", "收支类型"],
+    cents: ["金额", "amount", "money", "金额(元)", "金额（元）", "交易金额", "发生金额", "金额(元)"],
+    tag: ["分类", "category", "tag", "类别", "标签", "交易分类", "交易类型"],
+    wallet: ["账户", "account", "wallet", "支付方式", "账户(卡)", "收/付款方式", "付款方式", "资金渠道"],
+    merchant: ["交易对方", "对方", "商户", "收款方", "商家", "对方账号"],
+    memo: ["备注", "memo", "note", "remark", "说明", "商品", "商品说明"]
   };
+
+  /* 微信/支付宝的导出文件前面有十几行说明，表头不在第一行。
+     扫前 40 行，找同时出现「日期/时间」和「金额」的那一行当表头。 */
+  function findHeaderRow(rows) {
+    var limit = Math.min(rows.length, 40);
+    for (var i = 0; i < limit; i++) {
+      var joined = (rows[i] || []).join(",");
+      if (/(日期|时间)/.test(joined) && /金额/.test(joined)) return i;
+    }
+    return 0;
+  }
 
   var TAG_ALIAS = {
     "餐饮": "t_food", "伙食": "t_food", "外卖": "t_food", "吃": "t_food",
@@ -2769,9 +2910,8 @@
   }
 
   function normDay(raw) {
-    var t = String(raw || "").trim()
-      .replace(/[./年月]/g, "-").replace(/日/g, "").replace(/\s+/g, "");
-    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
+    // 允许带时间：「2026-10-01 12:31:05」「2026/10/1」「2026年10月1日」都认
+    var m = /(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/.exec(String(raw || "").trim());
     if (!m) return null;
     var y = +m[1], mo = +m[2], d = +m[3];
     var dt = new Date(y, mo - 1, d);
@@ -2887,7 +3027,8 @@
     var rows = parseCsvText(String(text || "").replace(/^\uFEFF/, ""));
     if (rows.length < 2) { toast("这个文件里只有表头，没有数据行", null, null, 2600); return; }
 
-    var cols = mapHeader(rows[0]);
+    var hdr = findHeaderRow(rows);
+    var cols = mapHeader(rows[hdr] || []);
     var missing = [];
     if (cols.day == null) missing.push("日期");
     if (cols.cents == null) missing.push("金额");
@@ -2896,7 +3037,7 @@
         "表头少了必需的列",
         "至少要有「日期」和「金额」两列；方向、分类、账户、备注是可选的。",
         ["这次没找到：" + missing.join("、"),
-         "识别到的表头：" + rows[0].join(" | "),
+         "识别到的表头：" + (rows[hdr] || []).join(" | "),
          "可以直接用「导出 CSV」下载的模板改，表头就是标准写法。"]
       );
       return;
@@ -2907,10 +3048,15 @@
     var valid = [];
     var errors = [];
 
-    for (var i = 1; i < rows.length; i++) {
+    for (var i = hdr + 1; i < rows.length; i++) {
       var r = rows[i];
       var lineNo = i + 1;
       var cellAt = function (k) { return cols[k] == null ? "" : String(r[cols[k]] || "").trim(); };
+
+      // 账单里的说明行（标题、汇总、分隔线、空行）不是脏数据，静默跳过
+      var nonEmpty = r.filter(function (c) { return String(c || "").trim(); }).length;
+      if (nonEmpty < 2) continue;
+      if (!cellAt("day")) continue;
 
       var day = normDay(cellAt("day"));
       if (!day) { errors.push("第 " + lineNo + " 行 · 日期：" + (cellAt("day") || "空") + " 认不出"); continue; }
@@ -2936,8 +3082,17 @@
         tag = tagOut;
       } else {
         var rawTag = cellAt("tag");
-        tag = rawTag ? matchTag(rawTag) : (flow === "in" ? tagIn : tagOut);
-        if (!tag) { errors.push("第 " + lineNo + " 行 · 分类：" + rawTag + " 对不上"); continue; }
+        tag = rawTag ? matchTag(rawTag) : null;
+        /* 账单自带的分类常常认不出来——微信那列是「交易类型」（商户消费/转账/红包），
+           不是消费分类。认不出就用商户名走智能分类，最后才落默认分类。 */
+        if (!tag) {
+          var mName = cellAt("merchant") || cellAt("memo");
+          if (mName && window.SZAuto) {
+            var g = window.SZAuto.guessTag(mName, flow, cents, 12, db.autoRules || {});
+            tag = db.tags.filter(function (t) { return t.id === g.tagId; })[0] || null;
+          }
+        }
+        if (!tag) tag = flow === "in" ? tagIn : tagOut;
         if (tag.flow !== flow) tag = flow === "in" ? tagIn : tagOut;
 
         var rawW = cellAt("wallet");
@@ -2948,7 +3103,7 @@
       valid.push({
         flow: flow, cents: cents, tagId: tag.id,
         walletId: wallet.id, toWalletId: toWallet ? toWallet.id : undefined,
-        day: day, memo: cellAt("memo")
+        day: day, memo: cellAt("merchant") || cellAt("memo")
       });
     }
 
@@ -3230,6 +3385,8 @@
     else if (act === "resetData") resetData();
     else if (act === "goAuto") { autoState().parsed = false; location.hash = "#/auto"; }
     else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
+    else if (act === "autoShot") autoPickImage();
+    else if (act === "goEntryManual") { ui._loaded = false; location.hash = "#/entry"; }
     else if (act === "autoRead") autoReadClipboard();
     else if (act === "autoRun") { runAutoParse(); render(); }
     else if (act === "autoCommit") autoCommit();
