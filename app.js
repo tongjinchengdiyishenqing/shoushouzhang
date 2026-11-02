@@ -2505,6 +2505,8 @@
     startQuotePoll();
     // 进设置页顺手对一次云端，别的设备刚记的账才看得见
     if (r.view === "config") pullMergeIfNeeded();
+    // 进持仓页顺手把股票索引拉到本地，等用户点搜索时就是 0 延迟
+    if (r.view === "holdings") ensureStockIdx();
   }
 
   /* ================= 交互 ================= */
@@ -3224,6 +3226,80 @@
      代码和名称都能匹配，点一条直接填好代码+名称。 */
   var _ssTimer = null, _ssSeq = 0;
 
+  /* ---------- 股票搜索：本地索引优先 ----------
+     慢的从来不是 SQL，是整条链路往返（实测 healthz 都要 600ms）。
+     所以把全量「代码 + 名称」一次拉到本地，之后每敲一个字都是 0 延迟。
+     索引约 120KB，缓存 24 小时；没用上就不再请求第二次。 */
+
+  var STOCK_IDX_KEY = "sz.stockIdx.v1";
+  var STOCK_IDX_TTL = 24 * 3600 * 1000;
+  var _stockIdx = null;
+  var _stockIdxLoading = null;
+
+  function readStockIdx() {
+    if (_stockIdx) return _stockIdx;
+    try {
+      var o = JSON.parse(localStorage.getItem(STOCK_IDX_KEY) || "null");
+      if (o && Array.isArray(o.items) && o.at && (Date.now() - o.at) < STOCK_IDX_TTL) {
+        _stockIdx = o.items;
+        return _stockIdx;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function ensureStockIdx() {
+    var cached = readStockIdx();
+    if (cached) return Promise.resolve(cached);
+    if (_stockIdxLoading) return _stockIdxLoading;
+    _stockIdxLoading = fetch(AUTH_API + "/stocks/index", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        _stockIdxLoading = null;
+        if (!j || !Array.isArray(j.items) || !j.items.length) return null;
+        _stockIdx = j.items;
+        try {
+          localStorage.setItem(STOCK_IDX_KEY, JSON.stringify({ at: Date.now(), items: j.items }));
+        } catch (e) { /* 存不下就只留内存，不影响这次搜索 */ }
+        return _stockIdx;
+      })
+      .catch(function () { _stockIdxLoading = null; return null; });
+    return _stockIdxLoading;
+  }
+
+  /* 排序规则：代码前缀 > 名称前缀 > 名称包含。
+     用户打「600」想要 600xxx，打「茅台」想要贵州茅台，都对得上。 */
+  function matchStockIdx(items, kw, limit) {
+    var q = String(kw || "").trim().toLowerCase();
+    if (!q) return [];
+    var byCode = [], byHead = [], byAny = [];
+    for (var i = 0; i < items.length; i++) {
+      var code = String(items[i][0] || "");
+      var name = String(items[i][1] || "");
+      if (code.toLowerCase().indexOf(q) === 0) { byCode.push(items[i]); continue; }
+      var pos = name.toLowerCase().indexOf(q);
+      if (pos === 0) byHead.push(items[i]);
+      else if (pos > 0) byAny.push(items[i]);
+    }
+    return byCode.concat(byHead).concat(byAny).slice(0, limit);
+  }
+
+  function renderStockList(items, raw, note) {
+    var bb = document.querySelector(".ss-list");
+    if (!bb) return;
+    if (!items.length) {
+      bb.innerHTML = '<div class="ss-empty">没找到「' + esc(raw) + '」</div>';
+    } else {
+      bb.innerHTML = items.map(function (x) {
+        return '<div class="ss-item" data-act="pickStock" data-code="' + esc(x.ts_code) +
+          '" data-name="' + esc(x.name) + '">' +
+          '<span class="code">' + esc(x.ts_code) + "</span>" +
+          '<span class="name">' + esc(x.name) + "</span></div>";
+      }).join("") + (note ? '<div class="ss-note">' + esc(note) + "</div>" : "");
+    }
+    bb.classList.add("show");
+  }
+
   function searchStocks(kw) {
     if (_ssTimer) clearTimeout(_ssTimer);
     var raw = String(kw || "").trim();
@@ -3232,34 +3308,40 @@
       if (box) { box.innerHTML = ""; box.classList.remove("show"); }
       return;
     }
+
+    /* 第一步：本地有索引就直接出结果。
+       够 8 条就不再打网络——大多数输入都会走到这里，瞬间响应。 */
+    var idx = readStockIdx();
+    if (idx) {
+      var local = matchStockIdx(idx, raw, 12);
+      renderStockList(local.map(function (x) {
+        return { ts_code: x[0], name: x[1] };
+      }), raw, "");
+      if (local.length >= 8) return;
+    } else {
+      // 没索引：后台拉一份，这次仍走网络
+      ensureStockIdx();
+    }
+
+    // 第二步：本地命中太少（或没索引）才问服务端，补别名/拼音类的匹配
     _ssTimer = setTimeout(function () {
       var seq = ++_ssSeq;
       var b = document.querySelector(".ss-list");
-      if (b) { b.innerHTML = '<div class="ss-loading">搜索中…</div>'; b.classList.add("show"); }
+      if (b && !idx) { b.innerHTML = '<div class="ss-loading">搜索中…</div>'; b.classList.add("show"); }
       fetch(AUTH_API + "/stocks?keyword=" + encodeURIComponent(raw) + "&limit=12", { cache: "no-store" })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           if (seq !== _ssSeq) return;                 // 输入又变了，丢弃过期结果
           var items = (j && j.items) || [];
-          var bb = document.querySelector(".ss-list");
-          if (!bb) return;
-          if (!items.length) {
-            bb.innerHTML = '<div class="ss-empty">没找到「' + esc(raw) + '」</div>';
-          } else {
-            bb.innerHTML = items.map(function (x) {
-              return '<div class="ss-item" data-act="pickStock" data-code="' + esc(x.ts_code) +
-                '" data-name="' + esc(x.name) + '">' +
-                '<span class="code">' + esc(x.ts_code) + "</span>" +
-                '<span class="name">' + esc(x.name) + "</span></div>";
-            }).join("");
-          }
-          bb.classList.add("show");
+          if (!items.length && idx) return;           // 本地已经显示过「没找到」，别闪一下
+          renderStockList(items, raw, "");
         })
         .catch(function () {
+          if (idx) return;                            // 本地有结果就别用错误覆盖
           var bb = document.querySelector(".ss-list");
           if (bb) bb.innerHTML = '<div class="ss-empty">搜索失败，检查网络</div>';
         });
-    }, 280);
+    }, idx ? 120 : 280);
   }
 
   function pickStock(code, name) {
