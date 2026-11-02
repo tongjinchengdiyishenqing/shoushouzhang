@@ -2546,3 +2546,111 @@ html, body {
 }
 .au-row.remote { background: #eef3fb; }
 .au-list + .btn-primary { margin-top: 6px; }
+
+/* ===== 决策详情页 + 评论区 ===== */
+
+/* 卡片可点：给一点按下反馈，用户才知道能点进去 */
+.dc-card.dc-open { cursor: pointer; }
+.dc-card.dc-open:active { transform: scale(0.995); background: #f1f1f4; }
+
+.dc-detail { margin-top: 14px; padding-bottom: 18px; }
+
+/* 评论区 */
+.dc-cmt-wrap {
+  margin: 22px 14px 34px;
+}
+.dc-cmt-title {
+  margin: 0 4px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.1px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-cmt {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--paper);
+  border-radius: var(--r-block);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.dc-cmt.mine { background: #fbf7f4; box-shadow: 0 0 0 1px #f0e2d8; }
+.dc-cmt-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.dc-cmt-h em {
+  margin-left: auto;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.dc-cmt-tag {
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--ink-3);
+}
+.dc-cmt-tag.skip { background: var(--pos); }
+.dc-cmt-tag.spend { background: var(--accent); }
+.dc-cmt-tag.think { background: #8e8e98; }
+.dc-cmt-tag.talk { background: #b9b9c4; }
+.dc-cmt-b {
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dc-cmt-empty {
+  padding: 18px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+/* 发评论：输入 + 按钮一行；高度 ≥44px 满足点按区底线 */
+.dc-cmt-form {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.dc-cmt-form input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.dc-cmt-form input::placeholder { color: var(--ink-3); font-weight: 500; }
+.dc-cmt-form button {
+  flex: none;
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dc-cmt-form button:active { transform: scale(0.97); }
+.dc-cmt-form button[disabled] { opacity: 0.5; }
