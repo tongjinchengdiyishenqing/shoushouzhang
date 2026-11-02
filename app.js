@@ -121,10 +121,12 @@
         wallets: raw.wallets && raw.wallets.length ? raw.wallets : DEFAULTS.wallets.slice(),
         tags: mergeTags(raw.tags),
         entries: raw.entries,
-        holdings: Array.isArray(raw.holdings) ? raw.holdings : []
+        holdings: Array.isArray(raw.holdings) ? raw.holdings : [],
+        // 自动识别的学习结果：商户名 → 分类 id，用户改过一次就记住
+        autoRules: raw.autoRules && typeof raw.autoRules === "object" ? raw.autoRules : {}
       };
     } else {
-      db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: seed(), holdings: [] };
+      db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: seed(), holdings: [], autoRules: {} };
       save();
     }
   }
@@ -146,7 +148,15 @@
      同步码 = 账号凭证 + 加密密钥的人类可读编码，别截图外传。 */
 
   var AUTH_KEY = "sz.auth.v1";
-  var AUTH_API = "https://v.yutiqu.eu.cc/api/v1";
+  /* 接口地址：默认官方后端；想接自建服务器或本地联调，
+     把 localStorage['sz.apiBase.v1'] 设成自己的 /api/v1 地址就行 */
+  var AUTH_API = (function () {
+    try {
+      var o = localStorage.getItem("sz.apiBase.v1");
+      if (o) return String(o).replace(/\/+$/, "");
+    } catch (e) {}
+    return "https://v.yutiqu.eu.cc/api/v1";
+  })();
   var SYNC_DEBOUNCE = 3000;
 
   function loadAuth() {
@@ -563,7 +573,8 @@
     nav_book: '<path fill-rule="evenodd" d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2.2 4.6a1 1 0 1 0 0 2h5.6a1 1 0 1 0 0-2H9.2Zm0 4a1 1 0 1 0 0 2h3.6a1 1 0 1 0 0-2H9.2Z"/>',
     nav_stats: '<path d="M3.2 12.6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 19v-5.2a1.2 1.2 0 0 1 1.2-1.2Zm6.9-6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2h-3.4A1.2 1.2 0 0 1 8.9 19V7.8a1.2 1.2 0 0 1 1.2-1.2Zm6.9-3.4h3.8A1.2 1.2 0 0 1 22 4.4V19a1.2 1.2 0 0 1-1.2 1.2h-3.8A1.2 1.2 0 0 1 15.8 19V4.4a1.2 1.2 0 0 1 1.2-1.2Z"/>',
     nav_assets: '<path fill-rule="evenodd" d="M6.4 4h11.2A4.4 4.4 0 0 1 22 8.4v7.2a4.4 4.4 0 0 1-4.4 4.4H6.4A4.4 4.4 0 0 1 2 15.6V8.4A4.4 4.4 0 0 1 6.4 4Zm11 5.1a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/>',
-    nav_config: '<path d="M3.4 6.2h8.2a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm13.9 0h3.3a1.1 1.1 0 1 1 0 2.2h-3.3a1.1 1.1 0 1 1 0-2.2ZM3.4 15.6h3.3a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm8.9 0h8.3a1.1 1.1 0 1 1 0 2.2h-8.3a1.1 1.1 0 1 1 0-2.2Z"/><circle cx="14.9" cy="7.3" r="2.5"/><circle cx="9.1" cy="16.7" r="2.5"/>'
+    nav_config: '<path d="M3.4 6.2h8.2a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm13.9 0h3.3a1.1 1.1 0 1 1 0 2.2h-3.3a1.1 1.1 0 1 1 0-2.2ZM3.4 15.6h3.3a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm8.9 0h8.3a1.1 1.1 0 1 1 0 2.2h-8.3a1.1 1.1 0 1 1 0-2.2Z"/><circle cx="14.9" cy="7.3" r="2.5"/><circle cx="9.1" cy="16.7" r="2.5"/>',
+    nav_decide: '<path fill-rule="evenodd" clip-rule="evenodd" d="M3 5.5A2.5 2.5 0 0 1 5.5 3h13A2.5 2.5 0 0 1 21 5.5v8A2.5 2.5 0 0 1 18.5 16H10l-5.2 4.2A1 1 0 0 1 3 19.4V5.5ZM7.4 8.2h1.6v1.6H7.4V8.2Zm3.8 0h1.6v1.6h-1.6V8.2Zm3.8 0h1.6v1.6h-1.6V8.2Z"/>'
   };
 
   function iconSolid(id) {
@@ -760,6 +771,8 @@
       '<div class="topbar">' +
         '<div class="icon-btn" data-act="toggleMenu">' + iconOf("menu") + "</div>" +
         "<h1>账单</h1>" +
+        '<div class="icon-btn" data-act="goAuto" aria-label="自动识别">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2.5 4.5 14H11l-1 7.5L18.5 10H12l1-7.5Z"/></svg></div>' +
         '<div class="icon-btn" data-act="goSearch">' + iconOf("search") + "</div></div>" +
       '<div class="month-line"><span data-act="prevMonth">‹</span><b>' + esc(label) + '</b><span data-act="nextMonth">›</span></div>' +
       '<div class="hero">' +
@@ -780,7 +793,7 @@
     });
     // 2×2 而不是四行：右列数字要避开右下角的悬浮 ＋
     var yearCard =
-      '<div class="card"><div class="card-title">' + esc(yearKey) + " 年汇总</div>" +
+      '<div class="card ov-card"><div class="card-title">' + esc(yearKey) + " 年汇总</div>" +
         '<div class="ygrid">' +
           '<div class="ycell"><i>收入</i><b class="pos">+¥' + money(yearIn) + "</b></div>" +
           '<div class="ycell"><i>支出</i><b>−¥' + money(yearOut) + "</b></div>" +
@@ -1148,15 +1161,15 @@
         var hs = holdingStats();
         var yf = yearFlow(ui.month.slice(0, 4));
         var cover = yf.out > 0 ? Math.round((yf.div / yf.out) * 100) : 0;
-        return '<div class="card"><div class="card-title">钱生钱</div>' +
+        return '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
           '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
             '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
           '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
             '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
         "</div>";
       })() +
-      '<div class="card"><div class="card-title">明细</div>' + rows + "</div>" +
-      '<div class="card"><div class="card-title">说明</div>' +
+      '<div class="card ov-card"><div class="card-title">明细</div>' + rows + "</div>" +
+      '<div class="card ov-card"><div class="card-title">说明</div>' +
         '<div class="list-row"><span>余额口径</span><span class="hint">期初 + 收入 − 支出</span></div>' +
         '<div class="list-row"><span>转账</span><span class="hint">只做账户间搬移，不计收支</span></div>' +
       "</div>"
@@ -1403,7 +1416,7 @@
       "</div>";
 
     var form =
-      '<div class="card"><div class="card-title">加一只</div>' +
+      '<div class="card ov-card"><div class="card-title">加一只</div>' +
         '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="输入代码或名称搜，如 茅台" value="' + esc(ui.hCode) + '"></div>' +
         '<div class="ss-list"></div>' +
         '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="填代码后自动带出" value="' + esc(ui.hName) + '">' +
@@ -1412,7 +1425,7 @@
         '<div class="field-row"><label>成本价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="1500.00" value="' + esc(ui.hCost) + '"></div>' +
       "</div>" +
       '<button class="btn-primary" data-act="addHolding">添加持仓</button>' +
-      '<div class="card"><div class="card-title">说明</div>' +
+      '<div class="card ov-card"><div class="card-title">说明</div>' +
         '<div class="list-row"><span>同一代码重复添加</span><span class="hint">按加权平均合并成本</span></div>' +
         '<div class="list-row"><span>点一行</span><span class="hint">删除这只</span></div>' +
       "</div>";
@@ -1420,7 +1433,7 @@
     // 渲染完再异步拉报价，避免在 render 栈里同步递归
     setTimeout(function () { refreshQuotes(false); }, 0);
 
-    return head + '<div class="card"><div class="card-title">明细</div>' + rows + "</div>" + form;
+    return head + '<div class="card ov-card"><div class="card-title">明细</div>' + rows + "</div>" + form;
   }
 
   /* ================= 视图：财务全景 ================= */
@@ -1431,10 +1444,13 @@
     var hs = holdingStats();
     var bal = walletBalances();
     var cashTotal = db.wallets.reduce(function (a, w) { return a + (bal[w.id] || 0); }, 0);
-    var netWorth = cashTotal + hs.mv;
+    var totalAssets = cashTotal + hs.mv;
+    var netWorth = totalAssets;
     var cover = y.out > 0 ? (y.div / y.out) * 100 : 0;
     var months = y.out > 0 ? y.div / (y.out / 12) : 0;
     var barW = Math.min(100, cover);
+    var pnlPct = hs.cost > 0 ? (hs.pnl / hs.cost) * 100 : 0;
+    var investPct = netWorth > 0 ? (hs.mv / netWorth) * 100 : 0;
 
     var coverDesc;
     if (y.out <= 0) coverDesc = "今年还没有支出记录";
@@ -1443,14 +1459,91 @@
     else if (cover < 100) coverDesc = "分红能覆盖 " + months.toFixed(1) + " 个月，超过半年了";
     else coverDesc = "分红已覆盖全年支出，多出 ¥" + money(y.div - y.out);
 
+    /* 近 6 个月净资产走势：没有历史快照，就用「当前净值 - 之后的净流量」倒推，
+       方向是对的，持仓按当前市值近似。 */
+    var mp = ui.month.split("-");
+    var ms = [];
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(Number(mp[0]), Number(mp[1]) - 1 - i, 1);
+      ms.push(d.getFullYear() + "-" + pad(d.getMonth() + 1));
+    }
+    var running = netWorth;
+    var series = [];
+    for (var j = ms.length - 1; j >= 0; j--) {
+      series[j] = running;
+      var xs = summarize(ms[j]);
+      running -= (xs.inc - xs.out);
+    }
+    var sMin = Math.min.apply(null, series);
+    var sMax = Math.max.apply(null, series);
+    var sSpan = (sMax - sMin) || 1;
+    var VBW = 340, VBY0 = 34, VBY1 = 10;
+    function sparkY(v) { return (VBY0 - ((v - sMin) / sSpan) * (VBY0 - VBY1)).toFixed(1); }
+    var pts = series.map(function (v, k) {
+      return ((k / (series.length - 1)) * VBW).toFixed(1) + "," + sparkY(v);
+    }).join(" ");
+    var trendUp = series[series.length - 1] >= series[0];
+    var areaPts = "0,40 " + pts + " " + VBW + ",40";
+    var lastY = sparkY(series[series.length - 1]);
+
+    /* 一句话提示：本月花掉多少、日均多少、和上月比 */
+    var cur = summarize(ui.month);
+    var prevD = new Date(Number(mp[0]), Number(mp[1]) - 2, 1);
+    var prevKey = prevD.getFullYear() + "-" + pad(prevD.getMonth() + 1);
+    var prev = summarize(prevKey);
+    var dayCount = new Date(Number(mp[0]), Number(mp[1]), 0).getDate();
+    function yuanInt(cents) {
+      return Math.round(cents / 100).toLocaleString("zh-CN");
+    }
+    var tipL, tipR;
+    if (cur.out > 0) {
+      tipL = "本月已花 <b>¥" + yuanInt(cur.out) + "</b>";
+      tipR = "日均 <b>¥" + yuanInt(cur.out / dayCount) + "</b>";
+      if (prev.out > 0) {
+        var dp = ((cur.out - prev.out) / prev.out) * 100;
+        tipR += ' <em class="' + (dp >= 0 ? "up" : "dn") + '">' +
+          (dp >= 0 ? "↑" : "↓") + Math.abs(dp).toFixed(0) + "%</em>";
+      }
+    } else {
+      tipL = "本月还没记账";
+      tipR = "点右下角 ＋ 开始";
+    }
+
     return (
       '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>财务全景</h1><div class="icon-btn"></div></div>' +
-      '<div class="hero">' +
-        '<div class="label">净资产 · ' + esc(yearKey) + " 年</div>" +
+      '<div class="hero nw-head">' +
+        '<div class="label">净资产 · ' + esc(yearKey) + "</div>" +
         '<div class="big"><span class="cur">¥</span>' + money(netWorth) + "</div>" +
-        '<div class="delta">现金 ¥' + money(cashTotal) + "　持仓 ¥" + money(hs.mv) + "</div>" +
+        '<div class="nw-spark-wrap">' +
+          '<span class="nw-spark-cap">近 6 个月净资产</span>' +
+          '<svg class="nw-spark" viewBox="0 0 346 40" preserveAspectRatio="none" aria-hidden="true">' +
+            '<defs><linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">' +
+              '<stop offset="0%" stop-color="#0e0e10" stop-opacity="0.2"/>' +
+              '<stop offset="100%" stop-color="#0e0e10" stop-opacity="0"/>' +
+            "</linearGradient></defs>" +
+            '<polygon points="' + areaPts + '" fill="url(#nwGrad)"/>' +
+            '<polyline points="' + pts + '"' + (trendUp ? "" : ' style="stroke:var(--neg)"') + "/>" +
+            '<circle cx="' + VBW + '" cy="' + lastY + '" r="3.4" fill="var(--ink)"/>' +
+          "</svg>" +
+        "</div>" +
       "</div>" +
-      '<div class="card"><div class="card-title">股息覆盖率</div>' +
+      '<div class="nw-tip"><span>' + tipL + "</span>" +
+        '<span class="nw-tip-r">' + tipR + "</span></div>" +
+      '<div class="stk stk-cash">' +
+        '<span class="stk-label">流动资产</span>' +
+        '<span class="stk-num">' + money(cashTotal) + "</span>" +
+      "</div>" +
+      '<div class="stk stk-invest">' +
+        '<span class="stk-label">投资资产</span>' +
+        '<div class="stk-big">' + money(hs.mv) + "</div>" +
+        '<div class="stk-foot">' +
+          "<span>浮动盈亏 " + (hs.pnl >= 0 ? "+" : "−") + "¥" + money(Math.abs(hs.pnl)) +
+            "（" + (pnlPct >= 0 ? "+" : "−") + Math.abs(pnlPct).toFixed(1) + "%）</span>" +
+          '<span class="stk-pct">' + investPct.toFixed(0) + "%</span>" +
+        "</div>" +
+      "</div>" +
+      '<div class="nw-gap"></div>' +
+      '<div class="card ov-card"><div class="card-title">股息覆盖率</div>' +
         '<div class="cover">' +
           '<div class="cover-num">' + cover.toFixed(0) + "<span>%</span></div>" +
           '<div class="cover-desc">' + coverDesc + "</div>" +
@@ -1461,19 +1554,431 @@
         '<div class="list-row"><span>年度总收入</span><span class="hint">+¥' + money(y.inc) + "</span></div>" +
         '<div class="list-row"><span>年度结余</span><span class="hint">' + cash(y.inc - y.out) + "</span></div>" +
       "</div>" +
-      '<div class="card"><div class="card-title">持仓</div>' +
+      '<div class="card ov-card"><div class="card-title">持仓</div>' +
         '<div class="list-row"><span>持仓市值</span><span class="hint">¥' + money(hs.mv) + "</span></div>" +
         '<div class="list-row"><span>持仓成本</span><span class="hint">¥' + money(hs.cost) + "</span></div>" +
         '<div class="list-row"><span>浮动盈亏</span><span class="hint" style="color:' + (hs.pnl >= 0 ? "var(--pos)" : "var(--neg)") + '">' +
           (hs.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(hs.pnl)) + "</span></div>" +
         '<div class="list-row" data-act="goHoldings"><span>管理持仓</span><span class="hint">' + hs.list.length + " 只 ›</span></div>" +
       "</div>" +
-      '<div class="card"><div class="card-title">口径</div>' +
+      '<div class="card ov-card"><div class="card-title">口径</div>' +
         '<div class="list-row"><span>净资产</span><span class="hint">账户余额 + 持仓市值</span></div>' +
         '<div class="list-row"><span>分红收入</span><span class="hint">流水里标签为「股息」的收入</span></div>' +
         '<div class="list-row"><span>生活支出</span><span class="hint">不含转账</span></div>' +
       "</div>"
     );
+  }
+
+  /* ================= 视图：自动识别 ================= */
+
+  /* 把「支付通知 / 银行短信 / 账单明细」这类文字变成账本里的一笔。
+     解析在 auto.js，这里只管交互：粘贴 → 识别 → 改分类 → 一次记下。
+     用户改过的分类会记进 db.autoRules，同一个商户下次直接认。 */
+  function autoState() {
+    if (!ui.auto) ui.auto = { text: "", items: [], skipped: [], parsed: false, err: "" };
+    return ui.auto;
+  }
+
+  function runAutoParse(text) {
+    var a = autoState();
+    if (typeof text === "string") a.text = text;
+    a.parsed = true;
+    a.err = "";
+    if (!window.SZAuto) {
+      a.items = [];
+      a.err = "识别模块没加载，刷新一下页面";
+      return;
+    }
+    if (!String(a.text || "").trim()) {
+      a.items = [];
+      a.skipped = [];
+      a.err = "先把要识别的文字粘进来";
+      return;
+    }
+    var r = window.SZAuto.parse(a.text, { learning: db.autoRules || {} });
+    a.items = r.items;
+    a.skipped = r.skipped || [];
+    if (!r.items.length) a.err = "没找到带金额的记录，检查一下是不是复制全了";
+  }
+
+  function autoReadClipboard() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      toast("这个浏览器读不了剪贴板，手动粘贴吧");
+      return;
+    }
+    navigator.clipboard.readText().then(function (t) {
+      if (!t || !t.trim()) { toast("剪贴板是空的"); return; }
+      runAutoParse(t);
+      render();
+      var a = autoState();
+      toast(a.items.length ? "认出 " + a.items.length + " 笔" : "没认出金额");
+    }).catch(function () {
+      toast("没有剪贴板权限，手动粘贴吧");
+    });
+  }
+
+  function autoCommit() {
+    var a = autoState();
+    if (!a.items.length) { toast("还没有可记的"); return; }
+    var fallbackWallet = db.wallets[0] ? db.wallets[0].id : "w_cash";
+    var n = 0;
+    a.items.forEach(function (it) {
+      db.entries.unshift({
+        id: uid("e"),
+        day: it.day,
+        flow: it.flow,
+        cents: it.cents,
+        tagId: it.tagId,
+        walletId: it.walletId || fallbackWallet,
+        memo: it.memo || "",
+        origin: "auto",
+        at: Date.now()
+      });
+      // 学习：这个商户用了这个分类，下次直接照抄
+      if (it.merchant) {
+        db.autoRules = db.autoRules || {};
+        db.autoRules[it.merchant] = it.tagId;
+      }
+      n++;
+    });
+    save();
+    a.items = [];
+    a.parsed = false;
+    a.text = "";
+    render();
+    toast("记下 " + n + " 笔");
+    syncPush();
+  }
+
+  function viewAuto() {
+    var a = autoState();
+    var tagsOut = db.tags.filter(function (t) { return t.flow === "out"; });
+    var tagsIn = db.tags.filter(function (t) { return t.flow === "in"; });
+
+    function tagOptions(flow, cur) {
+      var list = flow === "in" ? tagsIn : tagsOut;
+      return list.map(function (t) {
+        return '<option value="' + esc(t.id) + '"' + (t.id === cur ? " selected" : "") + ">" +
+          esc(t.name) + "</option>";
+      }).join("");
+    }
+
+    var rows = a.items.map(function (it, i) {
+      return '<div class="au-row">' +
+        '<div class="au-main">' +
+          '<div class="au-name">' + esc(it.merchant || "未识别商户") + "</div>" +
+          '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) + "</div>" +
+        "</div>" +
+        '<div class="au-right">' +
+          '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
+            (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
+          '<select class="au-tag" data-act="autoTag" data-id="' + i + '">' +
+            tagOptions(it.flow, it.tagId) + "</select>" +
+        "</div>" +
+        '<span class="au-del" data-act="autoDrop" data-id="' + i + '">✕</span>' +
+      "</div>";
+    }).join("");
+
+    var result;
+    if (a.err) {
+      result = '<div class="au-hint">' + esc(a.err) + "</div>";
+    } else if (a.items.length) {
+      result = '<div class="au-list">' + rows + "</div>" +
+        '<button class="btn-primary" data-act="autoCommit">全部记下（' + a.items.length + " 笔）</button>" +
+        (a.skipped && a.skipped.length
+          ? '<div class="au-skip">另外 ' + a.skipped.length + " 段没认出金额，已跳过</div>"
+          : "");
+    } else if (a.parsed) {
+      result = '<div class="au-hint">没找到可记的记录</div>';
+    } else {
+      result = "";
+    }
+
+    return '<div class="topbar"><div class="icon-btn" data-act="autoBack">‹</div>' +
+        '<h1>自动识别</h1><div class="icon-btn"></div></div>' +
+      '<div class="au-lead">把微信/支付宝的支付通知、银行短信，或者导出的账单明细粘进来，' +
+        "会自动认出金额、商户和分类。</div>" +
+      '<textarea class="au-input" data-act="autoText" placeholder="例：&#10;微信支付&#10;付款金额 ¥38.50&#10;收款方 美团外卖">' +
+        esc(a.text) + "</textarea>" +
+      '<div class="au-btns">' +
+        '<button class="au-btn" data-act="autoRead">读剪贴板</button>' +
+        '<button class="au-btn primary" data-act="autoRun">开始识别</button>' +
+      "</div>" +
+      result;
+  }
+
+  /* ================= 视图：决策广场（社交投票） ================= */
+
+  /* 想买又拿不准的时候，把决定权交给别人：
+     广场上的人投「花 / 忍 / 再看看」，票数实时更新，最后自己拍板。
+     听劝省下的钱会累计，帮别人劝退也有记录——这两根指标是整个功能的情绪出口。 */
+  function decideState() {
+    if (!ui.decide) {
+      ui.decide = {
+        scope: "all", sort: "hot", items: [], stats: null,
+        loading: false, loaded: false, hasMore: false,
+        error: "", panel: null,
+        form: { title: "", amount: "", reason: "", category: "", anonymous: false }
+      };
+    }
+    return ui.decide;
+  }
+
+  var DC_SCOPE = [["all", "广场"], ["mine", "我发的"], ["voted", "我投过的"]];
+  var DC_SORT = [["hot", "最热"], ["new", "最新"]];
+  var DC_CATS = ["数码", "吃饭", "购物", "玩", "其他"];
+
+  function agoText(iso) {
+    if (!iso) return "";
+    var t = Date.parse(iso);
+    if (!t) return "";
+    var diff = Date.now() - t;
+    if (diff < 60000) return "刚刚";
+    if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+    if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+    if (diff < 2592000000) return Math.floor(diff / 86400000) + " 天前";
+    return Math.floor(diff / 2592000000) + " 个月前";
+  }
+
+  function loadDecideFeed(append) {
+    var d = decideState();
+    if (!auth || d.loading) return;
+    d.loading = true;
+    d.error = "";
+    render();
+    var off = append ? d.items.length : 0;
+    // 战绩顺带拉一次，失败不影响列表
+    apiFetch("/decisions/me/stats", {}).then(function (r) {
+      if (r.ok && r.body) { d.stats = r.body; render(); }
+    }).catch(function () {});
+    apiFetch("/decisions?sort=" + d.sort + "&scope=" + d.scope + "&offset=" + off + "&limit=20", {})
+      .then(function (r) {
+        d.loading = false;
+        if (r.status === 401) { handleAuthExpired(); return; }
+        if (!r.ok) { d.error = (r.body && r.body.detail) || "加载失败"; render(); return; }
+        var items = (r.body && r.body.items) || [];
+        d.items = append ? d.items.concat(items) : items;
+        d.hasMore = !!(r.body && r.body.hasMore);
+        d.loaded = true;
+        render();
+      })
+      .catch(function () {
+        d.loading = false;
+        d.error = "网络不通，检查一下连接";
+        render();
+      });
+  }
+
+  var DC_VOTE_TEXT = { spend: "已投「花」", skip: "已投「忍住」", think: "已投「再看看」" };
+
+  function decideVote(id, choice) {
+    var d = decideState();
+    var target = null;
+    for (var i = 0; i < d.items.length; i++) if (d.items[i].id === id) target = d.items[i];
+    apiFetch("/decisions/" + id + "/vote", {
+      method: "POST",
+      body: JSON.stringify({ choice: choice })
+    }).then(function (r) {
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) { toast((r.body && r.body.detail) || "投票失败"); return; }
+      if (target) { target.votes = r.body.votes; target.myVote = choice; }
+      render();
+      toast(DC_VOTE_TEXT[choice] || "已投票");
+    }).catch(function () { toast("网络不通"); });
+  }
+
+  function decideMine(id, choice) {
+    var d = decideState();
+    apiFetch("/decisions/" + id + "/decide", {
+      method: "POST",
+      body: JSON.stringify({ choice: choice })
+    }).then(function (r) {
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) { toast((r.body && r.body.detail) || "操作失败"); return; }
+      for (var i = 0; i < d.items.length; i++) {
+        if (d.items[i].id === id) {
+          d.items[i].status = "closed";
+          d.items[i].finalChoice = choice;
+        }
+      }
+      render();
+      if (choice === "skip") toast("省下 ¥" + money(r.body.savedCents) + "，记在账上了", null, null, 2600);
+      else toast("买了就买了，下次再省");
+      loadDecideFeed(false);
+    }).catch(function () { toast("网络不通"); });
+  }
+
+  function submitDecision() {
+    var d = decideState();
+    var f = d.form;
+    var raw = String(f.amount).replace(/[,\s]/g, "");
+    var cents = Math.round(parseFloat(raw) * 100);
+    if (!f.title.trim()) { toast("先写想买什么"); return; }
+    if (!isFinite(cents) || cents <= 0) { toast("金额不对"); return; }
+    apiFetch("/decisions", {
+      method: "POST",
+      body: JSON.stringify({
+        title: f.title.trim(),
+        amountCents: cents,
+        reason: f.reason.trim() || null,
+        category: f.category || null,
+        anonymous: !!f.anonymous
+      })
+    }).then(function (r) {
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) { toast((r.body && r.body.detail) || "发布失败"); return; }
+      d.panel = null;
+      d.form = { title: "", amount: "", reason: "", category: "", anonymous: false };
+      d.scope = "mine";
+      d.sort = "new";
+      loadDecideFeed(false);
+      toast("发出去了，等大家投票");
+    }).catch(function () { toast("网络不通"); });
+  }
+
+  function decideCard(p) {
+    var v = p.votes || { spend: 0, skip: 0, think: 0, total: 0 };
+    var tot = v.total || 0;
+    function pct(n) { return tot > 0 ? Math.round((n / tot) * 100) : 0; }
+    var wSkip = tot ? (v.skip / tot) * 100 : 0;
+    var wSpend = tot ? (v.spend / tot) * 100 : 0;
+    var wThink = tot ? (v.think / tot) * 100 : 0;
+
+    var closed = p.status === "closed";
+    var verdict = "";
+    if (closed) {
+      verdict = p.finalChoice === "skip"
+        ? '<div class="dc-verdict skip">已听劝 · 省下 ¥' + money(p.amountCents) + " 🎉</div>"
+        : '<div class="dc-verdict buy">还是买了 · ¥' + money(p.amountCents) + "</div>";
+    }
+
+    var bar = tot > 0
+      ? '<div class="dc-bar">' +
+          (wSkip ? '<i class="b-skip" style="width:' + wSkip.toFixed(2) + '%"></i>' : "") +
+          (wSpend ? '<i class="b-spend" style="width:' + wSpend.toFixed(2) + '%"></i>' : "") +
+          (wThink ? '<i class="b-think" style="width:' + wThink.toFixed(2) + '%"></i>' : "") +
+        "</div>" +
+        '<div class="dc-legend">' +
+          '<span class="b-skip">忍 ' + pct(v.skip) + "%</span>" +
+          '<span class="b-spend">花 ' + pct(v.spend) + "%</span>" +
+          '<span class="b-think">再看看 ' + pct(v.think) + "%</span>" +
+          "<em>" + tot + " 人投过</em>" +
+        "</div>"
+      : '<div class="dc-legend empty">还没有人投票</div>';
+
+    var actions = "";
+    if (!closed) {
+      if (p.isMine) {
+        actions = '<div class="dc-actions">' +
+          '<button class="dc-btn skip" data-act="dcDecide" data-v="skip" data-id="' + p.id + '">我听劝，不买了</button>' +
+          '<button class="dc-btn spend" data-act="dcDecide" data-v="spend" data-id="' + p.id + '">还是买了</button>' +
+        "</div>";
+      } else {
+        function on(c) { return p.myVote === c ? " on" : ""; }
+        actions = '<div class="dc-actions">' +
+          '<button class="dc-btn skip' + on("skip") + '" data-act="dcVote" data-v="skip" data-id="' + p.id + '">忍住</button>' +
+          '<button class="dc-btn spend' + on("spend") + '" data-act="dcVote" data-v="spend" data-id="' + p.id + '">花</button>' +
+          '<button class="dc-btn think' + on("think") + '" data-act="dcVote" data-v="think" data-id="' + p.id + '">再看看</button>' +
+        "</div>";
+      }
+    }
+
+    return '<div class="dc-card' + (closed ? " closed" : "") + '">' +
+      '<div class="dc-top">' +
+        '<div class="dc-title">' + esc(p.title) + "</div>" +
+        '<div class="dc-amount">¥' + money(p.amountCents) + "</div>" +
+      "</div>" +
+      (p.reason ? '<div class="dc-reason">' + esc(p.reason) + "</div>" : "") +
+      verdict + bar + actions +
+      '<div class="dc-meta">' + esc(p.author) + " · " + agoText(p.createdAt) + "</div>" +
+    "</div>";
+  }
+
+  function decideFormPanel() {
+    var f = decideState().form;
+    return '<div class="dc-mask" data-act="dcCloseForm"></div>' +
+      '<div class="dc-sheet">' +
+        '<div class="dc-sheet-h"><b>这笔钱该花吗</b>' +
+          '<span class="x" data-act="dcCloseForm">✕</span></div>' +
+        '<div class="dc-field"><label>想买什么</label>' +
+          '<input data-act="dcFormTitle" maxlength="60" placeholder="机械键盘 1200 那把" value="' + esc(f.title) + '"></div>' +
+        '<div class="dc-field"><label>多少钱</label>' +
+          '<input data-act="dcFormAmount" type="number" inputmode="decimal" placeholder="1200" value="' + esc(f.amount) + '"></div>' +
+        '<div class="dc-field"><label>为什么想买</label>' +
+          '<input data-act="dcFormReason" maxlength="120" placeholder="现在的还能用，就是键帽油了" value="' + esc(f.reason) + '"></div>' +
+        '<div class="dc-cats">' + DC_CATS.map(function (c) {
+          return '<span class="' + (f.category === c ? "on" : "") + '" data-act="dcFormCat" data-v="' + c + '">' + c + "</span>";
+        }).join("") + "</div>" +
+        '<div class="dc-anon" data-act="dcFormAnon"><span>匿名发布</span>' +
+          '<i class="' + (f.anonymous ? "on" : "") + '"></i></div>' +
+        '<button class="btn-primary" data-act="dcSubmit">发出去，让大家投票</button>' +
+      "</div>";
+  }
+
+  function viewDecide() {
+    var d = decideState();
+
+    var head = '<div class="topbar"><div><h1>决策广场</h1>' +
+      '<div class="sub">拿不准的消费，让别人替你决定</div></div>' +
+      '<div class="icon-btn" data-act="dcOpenForm">＋</div></div>';
+
+    if (!auth) {
+      return head +
+        '<div class="empty"><span class="big-emoji">🗳️</span>' +
+        "决策广场要先登录，投票才认人<br>" +
+        '<div class="empty-act" data-act="dcGoLogin">去登录 ›</div></div>';
+    }
+
+    // 首次进入先拉一次（放到下一轮事件循环，避免在 render 里再触发 render）
+    if (!d.loaded && !d.loading && !d.error) {
+      setTimeout(function () { loadDecideFeed(false); }, 0);
+    }
+
+    var st = d.stats;
+    var stats = st
+      ? '<div class="dc-stats">' +
+          '<div class="dc-stat"><b>¥' + money(st.savedCents) + "</b><i>已省下</i></div>" +
+          '<div class="dc-stat"><b>' + st.helpedSkipCount + "</b><i>帮人劝退</i></div>" +
+          '<div class="dc-stat"><b>' + st.votedCount + "</b><i>投过的票</i></div>" +
+        "</div>"
+      : "";
+
+    var seg = '<div class="dc-seg">' + DC_SCOPE.map(function (x) {
+      return '<span class="' + (d.scope === x[0] ? "on" : "") +
+        '" data-act="dcScope" data-v="' + x[0] + '">' + x[1] + "</span>";
+    }).join("") + "</div>";
+
+    var sortRow = '<div class="dc-sort">' + DC_SORT.map(function (x) {
+      return '<span class="' + (d.sort === x[0] ? "on" : "") +
+        '" data-act="dcSort" data-v="' + x[0] + '">' + x[1] + "</span>";
+    }).join("") + "</div>";
+
+    var body;
+    if (d.error) {
+      body = '<div class="empty">' + esc(d.error) +
+        '<div class="empty-act" data-act="dcReload">重试</div></div>';
+    } else if (d.loading && !d.items.length) {
+      body = '<div class="dc-skel"><i></i><i></i><i></i></div>';
+    } else if (!d.items.length) {
+      var words = d.scope === "mine" ? "还没发过" : d.scope === "voted" ? "还没投过票" : "广场还空着";
+      body = '<div class="empty"><span class="big-emoji">🗳️</span>' + words +
+        '<div class="empty-act" data-act="dcOpenForm">发第一条 ›</div></div>';
+    } else {
+      body = d.items.map(decideCard).join("") +
+        (d.hasMore ? '<div class="dc-more" data-act="dcMore">加载更多</div>' : "") +
+        (d.loading ? '<div class="dc-more">加载中…</div>' : "");
+    }
+
+    return head + stats + seg + sortRow + body + (d.panel ? decideFormPanel() : "");
+  }
+
+  function dcResetFeed() {
+    var d = decideState();
+    d.items = [];
+    d.loaded = false;
+    d.hasMore = false;
+    d.error = "";
+    loadDecideFeed(false);
   }
 
   /* ================= 视图：设置 ================= */
@@ -1497,7 +2002,7 @@
       if (!auth) {
         if (ui.authPanel === "login" || ui.authPanel === "register") {
           var isReg = ui.authPanel === "register";
-          return '<div class="card">' + title +
+          return '<div class="card ov-card">' + title +
             '<div class="field-row"><label>用户名</label>' +
               '<input data-act="authUser" autocomplete="username" placeholder="3–20 位字母数字" value="' + esc(ui.authUser) + '"></div>' +
             '<div class="field-row"><label>密码</label>' +
@@ -1506,13 +2011,13 @@
             '<div class="list-row" data-act="switchAuth"><span>' + (isReg ? "已有账号" : "还没有账号") + '</span><span class="hint">' + (isReg ? "去登录 ›" : "去注册 ›") + "</span></div>" +
           "</div>";
         }
-        return '<div class="card">' + title +
+        return '<div class="card ov-card">' + title +
           '<div class="list-row" data-act="openAuth"><span>登录 / 注册</span><span class="hint">数据只在本机，登录后可跨设备同步 ›</span></div>' +
         "</div>";
       }
 
       // 已登录：显示账号 + 同步状态
-      var h = '<div class="card">' + title +
+      var h = '<div class="card ov-card">' + title +
         '<div class="mrow">' +
           '<div class="body">' +
             '<div class="nm">' + esc(auth.username) + "</div>" +
@@ -1528,11 +2033,11 @@
     return (
       '<div class="topbar"><div><h1>设置</h1><div class="sub">数据都在本机</div></div></div>' +
       syncCard() +
-      '<div class="card"><div class="card-title">管理</div>' +
+      '<div class="card ov-card"><div class="card-title">管理</div>' +
         '<div class="list-row" data-act="goWallets"><span>账户</span><span class="hint">' + db.wallets.length + " 个 · 增改删 ›</span></div>" +
         '<div class="list-row" data-act="goTags"><span>分类</span><span class="hint">' + db.tags.length + " 个 · 增改删 ›</span></div>" +
       "</div>" +
-      '<div class="card"><div class="card-title">数据</div>' +
+      '<div class="card ov-card"><div class="card-title">数据</div>' +
         '<div class="list-row"><span>记录条数</span><span class="hint">' + db.entries.length + " 条</span></div>" +
         '<div class="list-row"><span>占用空间</span><span class="hint">' + (size / 1024).toFixed(1) + " KB</span></div>" +
         '<div class="list-row" data-act="exportData"><span>导出备份</span><span class="hint">下载 JSON ›</span></div>' +
@@ -1541,7 +2046,7 @@
         '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从表格导入 ›</span></div>' +
         '<div class="list-row" data-act="resetData"><span>清空重来</span><span class="hint">全部记录与账户重置 ›</span></div>' +
       "</div>" +
-      '<div class="card"><div class="card-title">关于</div>' +
+      '<div class="card ov-card"><div class="card-title">关于</div>' +
         '<div class="list-row"><span>版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
         '<div class="list-row"><span>数据位置</span><span class="hint">本机 localStorage</span></div>' +
         '<div class="list-row"><span>联网</span><span class="hint">只有报价需要</span></div>' +
@@ -1572,14 +2077,14 @@
 
     return (
       '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>账户</h1><div class="icon-btn"></div></div>' +
-      '<div class="card"><div class="card-title">现有账户</div>' + rows + "</div>" +
-      '<div class="card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增账户") + "</div>" +
+      '<div class="card ov-card"><div class="card-title">现有账户</div>' + rows + "</div>" +
+      '<div class="card ov-card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增账户") + "</div>" +
         '<div class="field-row"><label>名称</label><input data-act="wName" placeholder="比如 招商银行" value="' + esc(ui.wName) + '"></div>' +
         '<div class="field-row"><label>期初余额</label><input data-act="wOpening" type="number" inputmode="decimal" placeholder="0" value="' + esc(ui.wOpening) + '"></div>' +
       "</div>" +
       '<button class="btn-primary" data-act="saveWallet">' + (editing ? "保存修改" : "添加账户") + "</button>" +
       (editing ? '<button class="btn-ghost" data-act="cancelWallet">取消</button>' : "") +
-      '<div class="card"><div class="card-title">说明</div>' +
+      '<div class="card ov-card"><div class="card-title">说明</div>' +
         '<div class="list-row"><span>期初余额</span><span class="hint">开始记账时这个账户里有多少钱</span></div>' +
         '<div class="list-row"><span>删除</span><span class="hint">有记录的账户不能删，先改记录</span></div>' +
       "</div>"
@@ -1638,7 +2143,7 @@
     function group(f, label) {
       var list = db.tags.filter(function (t) { return t.flow === f; });
       if (!list.length) return "";
-      return '<div class="card"><div class="card-title">' + label + "（" + list.length + "）</div>" +
+      return '<div class="card ov-card"><div class="card-title">' + label + "（" + list.length + "）</div>" +
         list.map(function (t) {
           var used = db.entries.filter(function (e) { return e.tagId === t.id; }).length;
           return '<div class="mrow" data-act="editTag" data-id="' + esc(t.id) + '">' +
@@ -1658,7 +2163,7 @@
     return (
       '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分类</h1><div class="icon-btn"></div></div>' +
       group("out", "支出") + group("in", "收入") +
-      '<div class="card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增分类") + "</div>" +
+      '<div class="card ov-card"><div class="card-title">' + (editing ? "改「" + esc(editing.name) + "」" : "新增分类") + "</div>" +
         '<div class="field-row"><label>名称</label><input data-act="tagName" placeholder="比如 宠物" value="' + esc(ui.tagName) + '"></div>' +
         '<div class="field-row"><label>类型</label>' +
           '<span class="seg-inline">' +
@@ -1671,7 +2176,7 @@
       "</div>" +
       '<button class="btn-primary" data-act="saveTag">' + (editing ? "保存修改" : "添加分类") + "</button>" +
       (editing ? '<button class="btn-ghost" data-act="cancelTag">取消</button>' : "") +
-      '<div class="card"><div class="card-title">说明</div>' +
+      '<div class="card ov-card"><div class="card-title">说明</div>' +
         '<div class="list-row"><span>删除</span><span class="hint">有记录的分类不能删</span></div>' +
         '<div class="list-row"><span>转账</span><span class="hint">转账不需要分类</span></div>' +
       "</div>"
@@ -1799,6 +2304,7 @@
   var TABS = [
     { href: "#/book", key: "book", ic: "nav_book", name: "账本" },
     { href: "#/stats", key: "stats", ic: "nav_stats", name: "统计" },
+    { href: "#/decide", key: "decide", ic: "nav_decide", name: "决策" },
     { href: "#/assets", key: "assets", ic: "nav_assets", name: "资产" },
     { href: "#/config", key: "config", ic: "nav_config", name: "设置" }
   ];
@@ -1832,6 +2338,8 @@
     else if (r.view === "wallets") body = viewWallets();
     else if (r.view === "tags") body = viewTags();
     else if (r.view === "search") body = viewSearch();
+    else if (r.view === "decide") body = viewDecide();
+    else if (r.view === "auto") body = viewAuto();
     else if (r.view === "config") body = viewConfig();
     else body = viewBook();
 
@@ -2694,6 +3202,18 @@
     else if (act === "editEntry") { ui._loaded = false; location.hash = "#/entry?id=" + encodeURIComponent(id); }
     else if (act === "back") { resetEntryForm(); location.hash = "#/book"; }
     else if (act === "statsFlow") { ui.statsFlow = v; render(); }
+    else if (act === "dcOpenForm") { var ds = decideState(); ds.panel = "post"; render(); }
+    else if (act === "dcCloseForm") { decideState().panel = null; render(); }
+    else if (act === "dcSubmit") submitDecision();
+    else if (act === "dcVote") decideVote(Number(id), v);
+    else if (act === "dcDecide") decideMine(Number(id), v);
+    else if (act === "dcScope") { var d1 = decideState(); if (d1.scope !== v) { d1.scope = v; dcResetFeed(); } }
+    else if (act === "dcSort") { var d2 = decideState(); if (d2.sort !== v) { d2.sort = v; dcResetFeed(); } }
+    else if (act === "dcMore") loadDecideFeed(true);
+    else if (act === "dcReload") { var d3 = decideState(); d3.error = ""; dcResetFeed(); }
+    else if (act === "dcFormCat") { var d4 = decideState().form; d4.category = d4.category === v ? "" : v; render(); }
+    else if (act === "dcFormAnon") { var d5 = decideState().form; d5.anonymous = !d5.anonymous; render(); }
+    else if (act === "dcGoLogin") { ui.authPanel = "login"; location.hash = "#/config"; }
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
     else if (act === "goHoldings") { location.hash = "#/holdings"; }
@@ -2708,6 +3228,16 @@
     else if (act === "exportCsv") exportCsv();
     else if (act === "importCsv") importCsv();
     else if (act === "resetData") resetData();
+    else if (act === "goAuto") { autoState().parsed = false; location.hash = "#/auto"; }
+    else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
+    else if (act === "autoRead") autoReadClipboard();
+    else if (act === "autoRun") { runAutoParse(); render(); }
+    else if (act === "autoCommit") autoCommit();
+    else if (act === "autoDrop") {
+      var au = autoState();
+      au.items.splice(Number(id), 1);
+      render();
+    }
     else if (act === "goSearch") { ui.searchQ = ""; location.hash = "#/search"; }
     else if (act === "openEntry") { ui._loaded = false; location.hash = "#/entry?id=" + id; }
     else if (act === "importJson") importJson();
@@ -2763,6 +3293,20 @@
     else if (act === "searchQ") { ui.searchQ = el.value; paintSearch(); }
     else if (act === "authUser") ui.authUser = el.value;
     else if (act === "authPwd") ui.authPwd = el.value;
+    else if (act === "dcFormTitle") decideState().form.title = el.value;
+    else if (act === "dcFormAmount") decideState().form.amount = el.value;
+    else if (act === "dcFormReason") decideState().form.reason = el.value;
+    else if (act === "autoText") autoState().text = el.value;
+  });
+
+  document.addEventListener("change", function (ev) {
+    var el = ev.target;
+    var act = el.getAttribute && el.getAttribute("data-act");
+    if (act === "autoTag") {
+      var a = autoState();
+      var i = Number(el.getAttribute("data-id"));
+      if (a.items[i]) a.items[i].tagId = el.value;
+    }
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
