@@ -1779,7 +1779,7 @@
      解析在 auto.js，这里只管交互：粘贴 → 识别 → 改分类 → 一次记下。
      用户改过的分类会记进 db.autoRules，同一个商户下次直接认。 */
   function autoState() {
-    if (!ui.auto) ui.auto = { text: "", items: [], skipped: [], parsed: false, err: "", loading: false };
+    if (!ui.auto) ui.auto = { text: "", items: [], remote: [], skipped: [], parsed: false, err: "", loading: false };
     return ui.auto;
   }
 
@@ -1803,6 +1803,49 @@
     a.items = r.items;
     a.skipped = r.skipped || [];
     if (!r.items.length) a.err = "没找到带金额的记录，检查一下是不是复制全了";
+  }
+
+  /* 采集端（通知监听 / 悬浮球 / Tasker / 快捷指令）会把原文推到服务端，
+     这里拉下来用同一套 auto.js 规则解析。
+     采集端只负责丢文本，规则永远只有一份。 */
+  var _rawLoading = false;
+
+  function loadPendingRaw() {
+    if (!auth || !auth.token || _rawLoading) return;
+    _rawLoading = true;
+    apiFetch("/auto/pending?limit=50", {}).then(function (r) {
+      _rawLoading = false;
+      if (!r.ok || !r.body) return;
+      var a = autoState();
+      var list = r.body.items || [];
+      var out = [];
+      list.forEach(function (raw) {
+        if (!window.SZAuto) return;
+        var parsed = window.SZAuto.parse(raw.text, { learning: db.autoRules || {} });
+        (parsed.items || []).forEach(function (it) {
+          it.rawId = raw.id;
+          it.source = raw.source;
+          it.why = "自动采集 · " + (it.why || "");
+          out.push(it);
+        });
+      });
+      // 内容没变就别重绘，免得用户正在输入时被打断
+      var sig = out.map(function (x) { return x.rawId; }).join(",");
+      if (sig === a._rawSig) return;
+      a._rawSig = sig;
+      a.remote = out;
+      render();
+    }).catch(function () {
+      _rawLoading = false;
+    });
+  }
+
+  function markRawDone(id, status) {
+    if (!id || !auth) return;
+    apiFetch("/auto/raw/" + id + "/done", {
+      method: "POST",
+      body: JSON.stringify({ status: status })
+    }).catch(function () {});
   }
 
   function autoReadClipboard() {
@@ -1939,6 +1982,40 @@
     input.click();
   }
 
+  /* 采集端那批单独确认：入账 + 标记服务端已处理 */
+  function autoRemoteCommit() {
+    var a = autoState();
+    var list = a.remote || [];
+    if (!list.length) { toast("没有待确认的"); return; }
+    var fallbackWallet = db.wallets[0] ? db.wallets[0].id : "w_cash";
+    var n = 0;
+    list.forEach(function (it) {
+      db.entries.unshift({
+        id: uid("e"),
+        day: it.day,
+        flow: it.flow,
+        cents: it.cents,
+        tagId: it.tagId,
+        walletId: it.walletId || fallbackWallet,
+        memo: it.memo || "",
+        origin: "auto",
+        at: Date.now()
+      });
+      if (it.merchant) {
+        db.autoRules = db.autoRules || {};
+        db.autoRules[it.merchant] = it.tagId;
+      }
+      if (it.rawId) markRawDone(it.rawId, "confirmed");
+      n++;
+    });
+    save();
+    a.remote = [];
+    a._rawSig = "";
+    render();
+    toast("记下 " + n + " 笔");
+    syncPush().catch(function () {});
+  }
+
   function autoCommit() {
     var a = autoState();
     if (!a.items.length) { toast("还没有可记的"); return; }
@@ -1987,6 +2064,30 @@
       }).join("");
     }
 
+    // 采集端来的单独一块，和本地粘/截图的分开展示
+    var remoteRows = (a.remote || []).map(function (it, i) {
+      return '<div class="au-row remote">' +
+        '<div class="au-main">' +
+          '<div class="au-name">' + esc(it.merchant || "未识别商户") + "</div>" +
+          '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) + "</div>" +
+        "</div>" +
+        '<div class="au-right">' +
+          '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
+            (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
+          '<select class="au-tag" data-act="autoRemoteTag" data-id="' + i + '">' +
+            tagOptions(it.flow, it.tagId) + "</select>" +
+        "</div>" +
+        '<span class="au-del" data-act="autoRemoteDrop" data-id="' + i + '">✕</span>' +
+      "</div>";
+    }).join("");
+
+    var remoteBlock = remoteRows
+      ? '<div class="au-sec-title">自动采集 · ' + (a.remote || []).length + " 笔待确认</div>" +
+        '<div class="au-list">' + remoteRows + "</div>" +
+        '<button class="btn-primary" data-act="autoRemoteCommit">确认记下（' + (a.remote || []).length + " 笔）</button>" +
+        '<div class="au-skip">来自通知监听 / 悬浮球截图等采集端，确认后才入账</div>'
+      : "";
+
     var rows = a.items.map(function (it, i) {
       return '<div class="au-row">' +
         '<div class="au-main">' +
@@ -2021,6 +2122,12 @@
       result = "";
     }
 
+    // 进页面就拉一次待确认（延后一拍，避免在 render 里递归）
+    if (auth && auth.token && !a._rawFetched) {
+      a._rawFetched = true;
+      setTimeout(function () { loadPendingRaw(); }, 0);
+    }
+
     return '<div class="topbar"><div class="icon-btn" data-act="autoBack">‹</div>' +
         '<h1>自动识别</h1><div class="icon-btn"></div></div>' +
       '<div class="au-lead">把微信/支付宝的支付通知、银行短信，或者导出的账单明细粘进来，' +
@@ -2034,6 +2141,7 @@
       '<div class="au-btns au-btns-2">' +
         '<button class="au-btn" data-act="autoRun">识别上面的文字</button>' +
       "</div>" +
+      remoteBlock +
       (a.loading ? '<div class="au-loading"><i></i>正在看这张图…</div>' : "") +
       result;
   }
@@ -2091,10 +2199,10 @@
     return null;
   }
 
-  function writeDecideCache(items, hasMore) {
+  function writeDecideCache(items, hasMore, stats) {
     try {
       localStorage.setItem(dcCacheKey(), JSON.stringify({
-        at: Date.now(), items: items.slice(0, 20), hasMore: !!hasMore
+        at: Date.now(), items: items.slice(0, 20), hasMore: !!hasMore, stats: stats || null
       }));
     } catch (e) { /* 存不下不影响使用，下次再写 */ }
   }
@@ -2109,6 +2217,7 @@
       if (cached) {
         d.items = cached.items;
         d.hasMore = cached.hasMore;
+        if (cached.stats) d.stats = cached.stats;
         d.loaded = true;
         if (!silent) render();
       }
@@ -2119,15 +2228,13 @@
     if (!silent) render();
     var off = append ? d.items.length : 0;
 
-    // 战绩顺带拉一次，失败不影响列表
-    apiFetch("/decisions/me/stats", {}).then(function (r) {
-      if (r.ok && r.body) {
-        d.stats = r.body;
-        if (!silent) render();
-      }
-    }).catch(function () {});
+    /* 一次请求同时拿列表和战绩。
+       隧道往返本身 500ms 以上且抖动大，两个请求并行等于等最慢的那个，
+       合并之后首屏稳定快一半。翻页时不带战绩（用不着）。 */
+    var dcQuery = "/decisions?sort=" + d.sort + "&scope=" + d.scope + "&offset=" + off + "&limit=20";
+    if (!append) dcQuery += "&withStats=1";
 
-    apiFetch("/decisions?sort=" + d.sort + "&scope=" + d.scope + "&offset=" + off + "&limit=20", {})
+    apiFetch(dcQuery, {})
       .then(function (r) {
         d.loading = false;
         if (r.status === 401) { handleAuthExpired(); return; }
@@ -2140,8 +2247,9 @@
         var items = (r.body && r.body.items) || [];
         d.items = append ? d.items.concat(items) : items;
         d.hasMore = !!(r.body && r.body.hasMore);
+        if (!append && r.body && r.body.stats) d.stats = r.body.stats;
         d.loaded = true;
-        if (!append) writeDecideCache(d.items, d.hasMore);
+        if (!append) writeDecideCache(d.items, d.hasMore, d.stats);
         if (!silent) render();
       })
       .catch(function () {
@@ -2852,13 +2960,13 @@
     if (r.view === "holdings") ensureStockIdx();
     /* 决策广场也要预取：在账本/资产页停留一秒后悄悄拉一次，
        等用户点「决策」时内容已经在内存里，不用等网络。 */
-    if (auth && (r.view === "book" || r.view === "assets") && !decideState().loaded) {
+    if (auth && r.view !== "decide" && !decideState().loaded) {
       clearTimeout(window._dcPre);
       window._dcPre = setTimeout(function () {
         if (auth && !decideState().loading && !decideState().loaded) {
           loadDecideFeed(false, true);
         }
-      }, 1000);
+      }, 200);
     }
   }
 
@@ -3821,6 +3929,16 @@
     else if (act === "resetData") resetData();
     else if (act === "goAuto") { autoState().parsed = false; location.hash = "#/auto"; }
     else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
+    else if (act === "autoRemoteCommit") autoRemoteCommit();
+    else if (act === "autoRemoteDrop") {
+      var ar = autoState();
+      var idx = Number(id);
+      var target = (ar.remote || [])[idx];
+      if (target && target.rawId) markRawDone(target.rawId, "ignored");
+      (ar.remote || []).splice(idx, 1);
+      ar._rawSig = (ar.remote || []).map(function (x) { return x.rawId; }).join(",");
+      render();
+    }
     else if (act === "autoShot") autoPickImage();
     else if (act === "goEntryManual") { ui._loaded = false; location.hash = "#/entry"; }
     else if (act === "autoRead") autoReadClipboard();
@@ -3899,6 +4017,10 @@
       var a = autoState();
       var i = Number(el.getAttribute("data-id"));
       if (a.items[i]) a.items[i].tagId = el.value;
+    } else if (act === "autoRemoteTag") {
+      var a2 = autoState();
+      var j = Number(el.getAttribute("data-id"));
+      if (a2.remote && a2.remote[j]) a2.remote[j].tagId = el.value;
     }
   });
 
