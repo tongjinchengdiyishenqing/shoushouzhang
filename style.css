@@ -1548,3 +1548,46 @@ html, body {
   flex-shrink: 0;
 }
 .field-row .name-hint.live { color: var(--pos); }
+
+/* ---------- 持仓录入：代码/名称模糊搜索建议 ---------- */
+.ss-list { display: none; }
+.ss-list.show {
+  display: block;
+  max-height: 244px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1.5px solid var(--line);
+  background: var(--paper);
+}
+.ss-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px var(--pad);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.ss-item:last-child { border-bottom: none; }
+.ss-item:active { background: var(--surface); }
+.ss-item .code {
+  flex-shrink: 0;
+  width: 92px;
+  font-size: 13px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.ss-item .name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-loading, .ss-empty {
+  padding: 13px var(--pad);
+  font-size: 13px;
+  color: var(--ink-3);
+}
