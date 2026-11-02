@@ -212,6 +212,8 @@
       auth.revision = res.body.revision;
       auth.lastSyncAt = Date.now();
       saveAuth();
+      // 推完要把「上次同步 / v几」刷出来，否则界面永远停在 v0
+      if (parseHash().view === "config" && ui.syncPanel !== "bind") render();
       return { ok: true, revision: auth.revision };
     }).catch(function (e) {
       ui.syncing = false;
