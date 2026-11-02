@@ -2157,6 +2157,9 @@
         scope: "all", sort: "hot", items: [], stats: null,
         loading: false, loaded: false, hasMore: false,
         error: "", panel: null,
+        // 详情页单独拉一次完整数据（带评论区），列表缓存里没有这些
+        detail: null, detailId: 0, detailLoading: false, detailError: "",
+        commentDraft: "", commentBusy: false,
         form: { title: "", amount: "", reason: "", category: "", anonymous: false }
       };
     }
@@ -2211,6 +2214,14 @@
     var d = decideState();
     if (!auth || d.loading) return;
 
+    /* 静默只对「不在决策页」成立：如果预取还在飞的时候用户已经进了决策页，
+       数据回来必须重绘，否则页面停在骨架屏上再也出不来。 */
+    function paint() {
+      var h = parseHash();
+      var onPage = h.view === "decide" && !Number(h.params.id || 0);
+      if (!silent || onPage) render();
+    }
+
     // 先把上次缓存的铺上，用户立刻有东西看
     if (!append && !d.items.length) {
       var cached = readDecideCache();
@@ -2241,7 +2252,7 @@
         if (!r.ok) {
           // 有缓存就别用错误盖掉已有内容
           if (!d.items.length) d.error = (r.body && r.body.detail) || "加载失败";
-          if (!silent) render();
+          paint();
           return;
         }
         var items = (r.body && r.body.items) || [];
@@ -2250,12 +2261,12 @@
         if (!append && r.body && r.body.stats) d.stats = r.body.stats;
         d.loaded = true;
         if (!append) writeDecideCache(d.items, d.hasMore, d.stats);
-        if (!silent) render();
+        paint();
       })
       .catch(function () {
         d.loading = false;
         if (!d.items.length) d.error = "网络不通，检查一下连接";
-        if (!silent) render();
+        paint();
       });
   }
 
@@ -2272,6 +2283,7 @@
       if (r.status === 401) { handleAuthExpired(); return; }
       if (!r.ok) { toast((r.body && r.body.detail) || "投票失败"); return; }
       if (target) { target.votes = r.body.votes; target.myVote = choice; }
+      if (d.detail && d.detail.id === id) { d.detail.votes = r.body.votes; d.detail.myVote = choice; }
       render();
       toast(DC_VOTE_TEXT[choice] || "已投票");
     }).catch(function () { toast("网络不通"); });
@@ -2290,6 +2302,10 @@
           d.items[i].status = "closed";
           d.items[i].finalChoice = choice;
         }
+      }
+      if (d.detail && d.detail.id === id) {
+        d.detail.status = "closed";
+        d.detail.finalChoice = choice;
       }
       render();
       if (choice === "skip") toast("省下 ¥" + money(r.body.savedCents) + "，记在账上了", null, null, 2600);
@@ -2373,7 +2389,7 @@
       }
     }
 
-    return '<div class="dc-card' + (closed ? " closed" : "") + '">' +
+    return '<div class="dc-card dc-open' + (closed ? " closed" : "") + '" data-act="dcOpenDetail" data-id="' + p.id + '">' +
       '<div class="dc-top">' +
         '<div class="dc-title">' + esc(p.title) + "</div>" +
         '<div class="dc-amount">¥' + money(p.amountCents) + "</div>" +
@@ -2407,6 +2423,9 @@
 
   function viewDecide() {
     var d = decideState();
+    var pid = Number(parseHash().params.id || 0);
+    if (pid) return viewDecisionDetail(pid);
+    d.detailId = 0;
 
     var head = '<div class="topbar"><div><h1>决策广场</h1>' +
       '<div class="sub">拿不准的消费，让别人替你决定</div></div>' +
@@ -2460,6 +2479,173 @@
     }
 
     return head + stats + seg + sortRow + body + (d.panel ? decideFormPanel() : "");
+  }
+
+
+  /* ---------- 决策详情页 ---------- */
+
+  /* 详情页要单独拉一次：列表接口不带评论区，也不带完整的投票理由时间线。
+     打开速度快慢全看这一个请求，所以骨架屏先铺、数据到了再替换。 */
+  var DC_CHOICE_TEXT = { spend: "花", skip: "忍住", think: "再看看" };
+
+  function dcVoteBar(p) {
+    var v = p.votes || { spend: 0, skip: 0, think: 0, total: 0 };
+    var tot = v.total || ((v.spend || 0) + (v.skip || 0) + (v.think || 0));
+    if (!tot) return '<div class="dc-legend empty">还没有人投票</div>';
+    function pct(n) { return Math.round(((n || 0) / tot) * 100); }
+    function w(n) { return (((n || 0) / tot) * 100).toFixed(2); }
+    return '<div class="dc-bar">' +
+        (v.skip ? '<i class="b-skip" style="width:' + w(v.skip) + '%"></i>' : "") +
+        (v.spend ? '<i class="b-spend" style="width:' + w(v.spend) + '%"></i>' : "") +
+        (v.think ? '<i class="b-think" style="width:' + w(v.think) + '%"></i>' : "") +
+      "</div>" +
+      '<div class="dc-legend">' +
+        '<span class="b-skip">忍 ' + pct(v.skip) + "%</span>" +
+        '<span class="b-spend">花 ' + pct(v.spend) + "%</span>" +
+        '<span class="b-think">再看看 ' + pct(v.think) + "%</span>" +
+        "<em>" + tot + " 人投过</em>" +
+      "</div>";
+  }
+
+  function dcActionsFor(p) {
+    if (p.status === "closed") return "";
+    if (p.isMine) {
+      return '<div class="dc-actions">' +
+        '<button class="dc-btn skip" data-act="dcDecide" data-v="skip" data-id="' + p.id + '">我听劝，不买了</button>' +
+        '<button class="dc-btn spend" data-act="dcDecide" data-v="spend" data-id="' + p.id + '">还是买了</button>' +
+      "</div>";
+    }
+    function on(c) { return p.myVote === c ? " on" : ""; }
+    return '<div class="dc-actions">' +
+      '<button class="dc-btn skip' + on("skip") + '" data-act="dcVote" data-v="skip" data-id="' + p.id + '">忍住</button>' +
+      '<button class="dc-btn spend' + on("spend") + '" data-act="dcVote" data-v="spend" data-id="' + p.id + '">花</button>' +
+      '<button class="dc-btn think' + on("think") + '" data-act="dcVote" data-v="think" data-id="' + p.id + '">再看看</button>' +
+    "</div>";
+  }
+
+  function loadDecisionDetail(id) {
+    var d = decideState();
+    d.detailId = id;
+    d.detailLoading = true;
+    d.detailError = "";
+    render();
+    apiFetch("/decisions/" + id, {}).then(function (r) {
+      // 用户已经退出去或换了一条，这次结果直接丢弃
+      if (decideState().detailId !== id) return;
+      d.detailLoading = false;
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) {
+        d.detailError = (r.body && r.body.detail) || "打不开这条";
+        render();
+        return;
+      }
+      d.detail = r.body;
+      render();
+    }).catch(function () {
+      if (decideState().detailId !== id) return;
+      d.detailLoading = false;
+      d.detailError = "网络不通，检查一下连接";
+      render();
+    });
+  }
+
+  function submitDecisionComment() {
+    var d = decideState();
+    var id = Number(d.detailId || 0);
+    if (!id || d.commentBusy) return;
+    var text = String(d.commentDraft || "").trim();
+    if (!text) { toast("写点什么再发"); return; }
+    d.commentBusy = true;
+    render();
+    apiFetch("/decisions/" + id + "/comments", {
+      method: "POST",
+      body: JSON.stringify({ content: text })
+    }).then(function (r) {
+      d.commentBusy = false;
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) {
+        toast((r.body && r.body.detail) || "发送失败");
+        render();
+        return;
+      }
+      d.commentDraft = "";
+      if (d.detail && d.detail.id === id) {
+        d.detail.comments = [r.body].concat(d.detail.comments || []);
+      }
+      render();
+      toast("发出去了");
+    }).catch(function () {
+      d.commentBusy = false;
+      toast("网络不通");
+      render();
+    });
+  }
+
+  function viewDecisionDetail(id) {
+    var d = decideState();
+    var head = '<div class="topbar"><div class="icon-btn" data-act="dcBackList">‹</div>' +
+      '<div><h1>决策详情</h1><div class="sub">这笔钱该不该花，大家怎么说</div></div>' +
+      '<div class="icon-btn"></div></div>';
+
+    if (!auth) {
+      return head + '<div class="empty">决策详情要先登录<div class="empty-act" data-act="dcGoLogin">去登录 ›</div></div>';
+    }
+
+    var p = d.detail && d.detail.id === id ? d.detail : null;
+    if (!p && !d.detailLoading && !d.detailError) {
+      setTimeout(function () { loadDecisionDetail(id); }, 0);
+    }
+
+    if (d.detailError && !p) {
+      return head + '<div class="empty">' + esc(d.detailError) +
+        '<div class="empty-act" data-act="dcDetailReload">重试</div></div>';
+    }
+    if (!p) return head + '<div class="dc-skel"><i></i><i></i><i></i></div>';
+
+    var closed = p.status === "closed";
+    var verdict = "";
+    if (closed) {
+      verdict = p.finalChoice === "skip"
+        ? '<div class="dc-verdict skip">已听劝 · 省下 ¥' + money(p.amountCents) + " 🎉</div>"
+        : '<div class="dc-verdict buy">还是买了 · ¥' + money(p.amountCents) + "</div>";
+    }
+
+    var post = '<div class="dc-card dc-detail' + (closed ? " closed" : "") + '">' +
+      '<div class="dc-top">' +
+        '<div class="dc-title">' + esc(p.title) + "</div>" +
+        '<div class="dc-amount">¥' + money(p.amountCents) + "</div>" +
+      "</div>" +
+      (p.reason ? '<div class="dc-reason">' + esc(p.reason) + "</div>" : "") +
+      verdict + dcVoteBar(p) + dcActionsFor(p) +
+      '<div class="dc-meta">' + esc(p.author) + " · " + agoText(p.createdAt) +
+        (p.category ? " · " + esc(p.category) : "") + "</div>" +
+    "</div>";
+
+    var cms = p.comments || [];
+    var list = cms.length
+      ? cms.map(function (c) {
+          var tag = c.kind === "vote"
+            ? '<span class="dc-cmt-tag ' + esc(c.choice || "") + '">' + (DC_CHOICE_TEXT[c.choice] || "投票") + "</span>"
+            : '<span class="dc-cmt-tag talk">点评</span>';
+          return '<div class="dc-cmt' + (c.mine ? " mine" : "") + '">' +
+            '<div class="dc-cmt-h">' + esc(c.author || "匿名") + tag +
+              "<em>" + agoText(c.createdAt) + "</em></div>" +
+            '<div class="dc-cmt-b">' + esc(c.content) + "</div>" +
+          "</div>";
+        }).join("")
+      : '<div class="dc-cmt-empty">还没有人留话</div>';
+
+    var composer = '<div class="dc-cmt-form">' +
+      '<input data-act="dcComment" maxlength="300" placeholder="说一句，给个理由" value="' + esc(d.commentDraft) + '">' +
+      '<button data-act="dcSendComment"' + (d.commentBusy ? " disabled" : "") + ">" +
+        (d.commentBusy ? "发送中" : "发送") + "</button>" +
+    "</div>";
+
+    return head + post +
+      '<div class="dc-cmt-wrap">' +
+        '<div class="dc-cmt-title">讨论 · ' + cms.length + " 条</div>" +
+        list + composer +
+      "</div>";
   }
 
   function dcResetFeed() {
@@ -3912,6 +4098,10 @@
     else if (act === "dcFormCat") { var d4 = decideState().form; d4.category = d4.category === v ? "" : v; render(); }
     else if (act === "dcFormAnon") { var d5 = decideState().form; d5.anonymous = !d5.anonymous; render(); }
     else if (act === "dcGoLogin") { ui.authPanel = "login"; location.hash = "#/config"; }
+    else if (act === "dcOpenDetail") { location.hash = "#/decide?id=" + encodeURIComponent(id); }
+    else if (act === "dcBackList") { decideState().detailId = 0; location.hash = "#/decide"; }
+    else if (act === "dcDetailReload") { var d6 = decideState(); d6.detail = null; d6.detailError = ""; render(); }
+    else if (act === "dcSendComment") submitDecisionComment();
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
     else if (act === "goHoldings") { location.hash = "#/holdings"; }
@@ -4007,6 +4197,7 @@
     else if (act === "dcFormTitle") decideState().form.title = el.value;
     else if (act === "dcFormAmount") decideState().form.amount = el.value;
     else if (act === "dcFormReason") decideState().form.reason = el.value;
+    else if (act === "dcComment") decideState().commentDraft = el.value;
     else if (act === "autoText") autoState().text = el.value;
   });
 
