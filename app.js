@@ -135,6 +135,219 @@
     } catch (e) {
       /* 存储满了就静默失败，不影响使用 */
     }
+    // 本地保存完就排一次云同步（没开同步时内部直接跳过）
+    scheduleSync();
+  }
+
+  /* ================= 云同步（匿名账号 + 端到端加密） =================
+     设计：打开就能用，不强制注册。首次开同步时静默建一个匿名账号，
+     拿到 12 位同步码；换设备输码即可接管。
+     加密在浏览器里做完再上传，后端只存密文——没有同步码谁也解不开。
+     同步码 = 账号凭证 + 加密密钥的人类可读编码，别截图外传。 */
+
+  var AUTH_KEY = "sz.auth.v1";
+  var AUTH_API = "https://v.yutiqu.eu.cc/api/v1";
+  var SYNC_DEBOUNCE = 3000;
+
+  function loadAuth() {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || "null") || null; }
+    catch (e) { return null; }
+  }
+  function saveAuth() {
+    try {
+      if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+      else localStorage.removeItem(AUTH_KEY);
+    } catch (e) { /* 存不下不影响本机记账 */ }
+  }
+
+  var auth = loadAuth();
+  var _szKey = null, _szKeyCode = "";
+
+  function apiFetch(path, opts) {
+    opts = opts || {};
+    var headers = { "Content-Type": "application/json" };
+    if (auth && auth.token) headers.Authorization = "Bearer " + auth.token;
+    opts.headers = headers;
+    return fetch(AUTH_API + path, opts).then(function (r) {
+      return r.text().then(function (t) {
+        var j = null;
+        try { j = t ? JSON.parse(t) : null; } catch (e) { j = null; }
+        return { ok: r.ok, status: r.status, body: j };
+      });
+    });
+  }
+
+  /* PBKDF2 20 万次派生在手机上要几百毫秒，派生一次就缓存住，
+     否则每次自动同步都要卡一下 */
+  function syncKey() {
+    if (!auth || !auth.syncCode) return Promise.reject(new Error("还没开启同步"));
+    if (!window.SZSync) return Promise.reject(new Error("加密模块未加载"));
+    if (_szKey && _szKeyCode === auth.syncCode) return Promise.resolve(_szKey);
+    return window.SZSync.deriveKey(auth.syncCode).then(function (k) {
+      _szKey = k; _szKeyCode = auth.syncCode;
+      return k;
+    });
+  }
+
+  function syncPush(force) {
+    if (!auth || !auth.token) return Promise.resolve({ skipped: true });
+    if (ui.syncing) return Promise.resolve({ skipped: true });
+    if (ui.applyingRemote) return Promise.resolve({ skipped: true });
+    ui.syncing = true;
+    return syncKey().then(function (key) {
+      return window.SZSync.encrypt(key, db).then(function (cipher) {
+        return apiFetch("/sync/push", {
+          method: "PUT",
+          body: JSON.stringify({ cipher: cipher, revision: auth.revision || 0 })
+        });
+      });
+    }).then(function (res) {
+      ui.syncing = false;
+      if (res.status === 409) {
+        // 别的设备先推过了：不静默覆盖，交给用户决定
+        var serverRev = (res.body && res.body.revision) || 0;
+        return { conflict: true, serverRevision: serverRev };
+      }
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      auth.revision = res.body.revision;
+      auth.lastSyncAt = Date.now();
+      saveAuth();
+      return { ok: true, revision: auth.revision };
+    }).catch(function (e) {
+      ui.syncing = false;
+      throw e;
+    });
+  }
+
+  function syncPull() {
+    if (!auth || !auth.token) return Promise.reject(new Error("还没开启同步"));
+    return apiFetch("/sync/pull").then(function (res) {
+      if (res.status === 404) return { empty: true };
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return syncKey().then(function (key) {
+        return window.SZSync.decrypt(key, res.body.cipher).then(function (obj) {
+          return { data: obj, revision: res.body.revision };
+        });
+      });
+    });
+  }
+
+  var _syncTimer = null;
+  function scheduleSync() {
+    if (!auth || !auth.token) return;
+    if (ui.applyingRemote) return;
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(function () {
+      _syncTimer = null;
+      syncPush(true).catch(function () { /* 断网就等下次保存再试 */ });
+    }, SYNC_DEBOUNCE);
+  }
+
+  function enableSync() {
+    if (ui.syncing) return;
+    ui.syncing = true;
+    apiFetch("/auth/anon", { method: "POST" }).then(function (res) {
+      ui.syncing = false;
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      auth = {
+        token: res.body.token, syncCode: res.body.syncCode,
+        userId: res.body.userId, revision: 0, lastSyncAt: 0
+      };
+      saveAuth();
+      toast("云同步已开启");
+      render();
+      return syncPush(true).catch(function () {});
+    }).catch(function (e) {
+      ui.syncing = false;
+      toast("开启失败：" + (e.message || "网络不通"), null, null, 2600);
+      render();
+    });
+  }
+
+  function disableSync() {
+    if (!confirm("关闭云同步？\n\n本机数据不受影响，但服务端已上传的备份会删除。\n同步码将立即失效。")) return;
+    apiFetch("/auth/account", { method: "DELETE" }).then(function () {
+      auth = null; _szKey = null; _szKeyCode = "";
+      saveAuth();
+      toast("已关闭云同步");
+      render();
+    }).catch(function () {
+      toast("关闭失败，稍后再试", null, null, 2400);
+    });
+  }
+
+  function bindDevice() {
+    var raw = String(ui.syncCodeInput || "").trim();
+    if (!raw) { toast("先输入同步码"); return; }
+    var code;
+    try { code = window.SZSync.normalizeCode(raw); }
+    catch (e) { toast("同步码格式不对", null, null, 2400); return; }
+    if (ui.syncing) return;
+    ui.syncing = true;
+    apiFetch("/auth/bind", { method: "POST", body: JSON.stringify({ syncCode: code }) }).then(function (res) {
+      if (res.status === 404) throw new Error("同步码无效");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      auth = { token: res.body.token, syncCode: code, userId: res.body.userId, revision: 0, lastSyncAt: 0 };
+      _szKey = null; _szKeyCode = "";
+      saveAuth();
+      return syncPull();
+    }).then(function (pulled) {
+      ui.syncing = false;
+      if (pulled && pulled.empty) {
+        toast("这台设备已接管，云端还没有数据");
+        ui.syncPanel = "";
+        ui.syncCodeInput = "";
+        render();
+        return;
+      }
+      if (!pulled || !pulled.data || !Array.isArray(pulled.data.entries)) {
+        throw new Error("云端数据无法识别");
+      }
+      if (!confirm("接管成功。\n\n云端有 " + pulled.data.entries.length + " 条记录，将覆盖本机当前数据，继续？")) {
+        ui.syncPanel = ""; ui.syncCodeInput = "";
+        render();
+        return;
+      }
+      // 覆盖期间屏蔽自动推送，否则会把刚拉下来的又推回去
+      ui.applyingRemote = true;
+      db = {
+        wallets: pulled.data.wallets && pulled.data.wallets.length ? pulled.data.wallets : DEFAULTS.wallets.slice(),
+        tags: mergeTags(pulled.data.tags),
+        entries: pulled.data.entries,
+        holdings: Array.isArray(pulled.data.holdings) ? pulled.data.holdings : []
+      };
+      auth.revision = pulled.revision;
+      auth.lastSyncAt = Date.now();
+      saveAuth();
+      save();
+      ui.applyingRemote = false;
+      ui.syncPanel = ""; ui.syncCodeInput = "";
+      toast("已恢复 " + db.entries.length + " 条记录");
+      render();
+    }).catch(function (e) {
+      ui.syncing = false;
+      toast("接管失败：" + (e.message || "网络不通"), null, null, 2600);
+      render();
+    });
+  }
+
+  function syncNow() {
+    if (!auth) return;
+    toast("正在同步…");
+    syncPush(true).then(function (r) {
+      if (r.conflict) {
+        toast("另一台设备更新过，本地未覆盖", "强制覆盖", function () {
+          auth.revision = r.serverRevision || 0;
+          saveAuth();
+          syncPush(true).then(function () { toast("已覆盖"); render(); }).catch(function () { toast("同步失败"); });
+        }, 5000);
+        return;
+      }
+      toast("已同步");
+      render();
+    }).catch(function (e) {
+      toast("同步失败：" + (e.message || "网络不通"), null, null, 2600);
+    });
   }
 
   /* ================= 工具 ================= */
@@ -308,7 +521,12 @@
     tagFlow: "out",
     tagIcon: "",
     /* 搜索关键词（跨全部月份） */
-    searchQ: ""
+    searchQ: "",
+    /* 云同步界面状态 */
+    syncing: false,
+    applyingRemote: false,
+    syncPanel: "",
+    syncCodeInput: ""
   };
 
   function viewBook() {
@@ -1083,8 +1301,44 @@
   function viewConfig() {
     var size = 0;
     try { size = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) { size = 0; }
+
+    function syncAgo(ts) {
+      if (!ts) return "还没同步过";
+      var diff = Date.now() - ts;
+      if (diff < 60000) return "刚刚";
+      if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+      if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+      return Math.floor(diff / 86400000) + " 天前";
+    }
+    function syncCard() {
+      if (!auth) {
+        return '<div class="card"><div class="card-title">账号 · 云同步</div>' +
+          '<div class="list-row" data-act="enableSync"><span>开启云同步</span><span class="hint">当前数据只在本机 ›</span></div>' +
+          "</div>";
+      }
+      var h = '<div class="card"><div class="card-title">账号 · 云同步</div>' +
+        '<div class="mrow">' +
+          '<div class="body">' +
+            '<div class="nm">同步码</div>' +
+            '<div class="sub">别截图外传，它同时是解密钥匙</div>' +
+          "</div>" +
+          '<span class="mrow-act" data-act="copySyncCode">复制</span>' +
+        "</div>" +
+        '<div class="mx-code">' + esc(auth.syncCode) + "</div>" +
+        '<div class="list-row"><span>上次同步</span><span class="hint">' + syncAgo(auth.lastSyncAt) + " · v" + (auth.revision || 0) + "</span></div>" +
+        '<div class="list-row" data-act="syncNow"><span>立即同步</span><span class="hint">›</span></div>' +
+        '<div class="list-row" data-act="goBind"><span>在新设备接管</span><span class="hint">输入同步码 ›</span></div>' +
+        '<div class="list-row" data-act="disableSync"><span>关闭云同步</span><span class="hint">删除云端备份</span></div>';
+      if (ui.syncPanel === "bind") {
+        h += '<div class="field-row"><label>同步码</label>' +
+          '<input data-act="syncCodeInput" placeholder="XXXX-XXXX-XXXX" value="' + esc(ui.syncCodeInput) + '"></div>' +
+          '<button class="btn-primary" data-act="doBind">接管这台设备</button>';
+      }
+      return h + "</div>";
+    }
     return (
       '<div class="topbar"><div><h1>设置</h1><div class="sub">数据都在本机</div></div></div>' +
+      syncCard() +
       '<div class="card"><div class="card-title">管理</div>' +
         '<div class="list-row" data-act="goWallets"><span>账户</span><span class="hint">' + db.wallets.length + " 个 · 增改删 ›</span></div>" +
         '<div class="list-row" data-act="goTags"><span>分类</span><span class="hint">' + db.tags.length + " 个 · 增改删 ›</span></div>" +
@@ -2158,6 +2412,18 @@
     else if (act === "cancelTag") { ui.editTagId = ""; ui.tagName = ""; ui.tagIcon = ""; render(); }
     else if (act === "pickTagIcon") { ui.tagIcon = v; render(); }
     else if (act === "setTagFlow") { ui.tagFlow = v; render(); }
+    else if (act === "enableSync") enableSync();
+    else if (act === "copySyncCode") {
+      if (auth && auth.syncCode && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(auth.syncCode).then(function () { toast("已复制"); }, function () { toast("复制不了，长按手动选"); });
+      } else {
+        toast("复制不了，长按手动选");
+      }
+    }
+    else if (act === "syncNow") syncNow();
+    else if (act === "goBind") { ui.syncPanel = ui.syncPanel === "bind" ? "" : "bind"; render(); }
+    else if (act === "doBind") bindDevice();
+    else if (act === "disableSync") disableSync();
   });
 
   document.addEventListener("input", function (ev) {
@@ -2173,6 +2439,7 @@
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
     else if (act === "searchQ") { ui.searchQ = el.value; paintSearch(); }
+    else if (act === "syncCodeInput") ui.syncCodeInput = el.value;
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
