@@ -984,26 +984,31 @@
         '<span class="nm" data-act="nextMonth">' + nextLabel + "</span>" +
       "</div>";
 
-    var hero =
-      '<div class="stat-hero">' +
-        '<div class="big' + (isOut ? "" : " in") + '"><span class="cur">¥</span>' + money(total) + "</div>" +
-        '<div class="meta">' + count + " 笔 · 日均 ¥" + money(Math.round(total / days)) + "</div>" +
+    /* 支出和收入并排成两张卡：不点也能同时看到两个数，
+       点了才切换下面按分类的明细。钱往就是这个结构。 */
+    var outN = s.list.filter(function (e) { return e.flow === "out"; }).length;
+    var inN = s.list.filter(function (e) { return e.flow === "in"; }).length;
+    var pair =
+      '<div class="flow-pair">' +
+        '<div class="fp-item' + (isOut ? " on" : "") + '" data-act="statsFlow" data-v="out">' +
+          '<div class="fp-num">-¥' + money(s.out) + "</div>" +
+          '<div class="fp-label">支出 · ' + outN + " 笔</div>" +
+        "</div>" +
+        '<div class="fp-item' + (!isOut ? " on" : "") + '" data-act="statsFlow" data-v="in">' +
+          '<div class="fp-num">+¥' + money(s.inc) + "</div>" +
+          '<div class="fp-label">收入 · ' + inN + " 笔</div>" +
+        "</div>" +
       "</div>";
+
+    var hero =
+      '<div class="stat-meta">日均' + (isOut ? "支出" : "收入") + " ¥" +
+        money(Math.round(total / days)) + " · 共 " + count + " 笔</div>";
 
     if (!rows.length) {
       return (
         '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分析</h1><div class="icon-btn"></div></div>' +
-        nav + segHtml() + hero +
+        nav + pair +
         '<div class="empty">这个月还没有' + (isOut ? "支出" : "收入") + '记录</div>'
-      );
-    }
-
-    function segHtml() {
-      return (
-        '<div class="seg">' +
-          '<button class="' + (isOut ? "on" : "") + '" data-act="statsFlow" data-v="out">支出</button>' +
-          '<button class="' + (!isOut ? "on" : "") + '" data-act="statsFlow" data-v="in">收入</button>' +
-        "</div>"
       );
     }
 
@@ -1070,7 +1075,7 @@
 
     return (
       '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分析</h1><div class="icon-btn"></div></div>' +
-      nav + segHtml() + hero + donut + table
+      nav + pair + hero + donut + table
     );
   }
 
