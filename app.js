@@ -914,7 +914,11 @@
 
     var meta =
       '<div class="card">' +
-        '<div class="field-row"><label>日期</label><input type="date" data-act="setDay" value="' + esc(ui.day) + '"></div>' +
+        '<div class="field-row"><label>日期</label>' +
+          '<input type="date" data-act="setDay" value="' + esc(ui.day) + '">' +
+          '<span class="day-quick" data-act="dayOffset" data-v="1">昨天</span>' +
+          '<span class="day-quick" data-act="dayOffset" data-v="2">前天</span>' +
+        "</div>" +
         '<div class="field-row"><label>备注</label><input type="text" data-act="setMemo" placeholder="写点什么" value="' + esc(ui.memo) + '"></div>' +
       "</div>";
 
@@ -936,12 +940,12 @@
   }
 
   function keypad(editing) {
-    // 计算器式布局：7 8 9 ⌫ / 4 5 6 清空 / 1 2 3 . / 00 0 记下(跨两格)
+    // 学钱往：编辑态左下角直接是「删除」，不再额外占一行；
+    // 创建态给一个「再记」，连续记多笔不用反复进出
     var rows = [
       ["7", "8", "9", "⌫"],
       ["4", "5", "6", "清空"],
-      ["1", "2", "3", "."],
-      ["00", "0"]
+      ["1", "2", "3", "."]
     ];
     var html = "";
     rows.forEach(function (row) {
@@ -949,13 +953,22 @@
         var fn = k === "⌫" || k === "清空";
         html += '<div class="key ' + (fn ? "fn" : "") + '" data-act="key" data-v="' + k + '">' + k + "</div>";
       });
-      if (row.length === 2) {
-        html += '<div class="key go wide" data-act="saveEntry" data-id="' +
-          (editing ? esc(editing.id) : "") + '">' + (editing ? "保存" : "记下") + "</div>";
-      }
     });
     if (editing) {
-      html += '<div class="key fn wide" data-act="delEntry" data-id="' + esc(editing.id) + '">删除这笔</div>';
+      // 编辑：删除 | 0 | . | 保存
+      html += '<div class="key fn del" data-act="delEntry" data-id="' + esc(editing.id) + '">删除</div>' +
+        '<div class="key" data-act="key" data-v="0">0</div>' +
+        '<div class="key" data-act="key" data-v=".">.</div>' +
+        '<div class="key go" data-act="saveEntry" data-id="' + esc(editing.id) + '">保存</div>';
+    } else {
+      // 新建：00 | 0 | . | 再记 | 记下（5 格，单独一行网格）
+      html += '<div class="pad-row-5">' +
+        '<div class="key" data-act="key" data-v="00">00</div>' +
+        '<div class="key" data-act="key" data-v="0">0</div>' +
+        '<div class="key" data-act="key" data-v=".">.</div>' +
+        '<div class="key again" data-act="saveAndNew">再记</div>' +
+        '<div class="key go" data-act="saveEntry" data-id="">记下</div>' +
+        "</div>";
     }
     return '<div class="pad">' + html + "</div>";
   }
@@ -1973,7 +1986,7 @@
     paintAmount();
   }
 
-  function saveEntry(editingId) {
+  function saveEntry(editingId, stayHere) {
     var val = Math.round(parseFloat(ui.draft || "0") * 100);
     if (!val || val <= 0) { toast("先输入金额"); return; }
     if (ui.flow === "move" && ui.walletId === ui.toWalletId) { toast("转出转入不能一样"); return; }
@@ -2002,6 +2015,19 @@
       toast("记下了");
     }
     save();
+
+    /* 「再记」：留在记账页继续下一笔。
+       分类 / 账户 / 日期都不动（连着记同类很常见），只清金额和备注。 */
+    if (stayHere) {
+      ui.draft = "";
+      ui.memo = "";
+      var memoInput = document.querySelector('[data-act="setMemo"]');
+      if (memoInput) memoInput.value = "";
+      paintAmount();
+      toast("已记下，接着记下一笔", null, null, 1600);
+      return;
+    }
+
     // 记到了别的月份时，把账本跳到那个月，否则用户会以为没记上
     var savedMonth = String(payload.day).slice(0, 7);
     var monthChanged = savedMonth !== ui.month;
@@ -2011,6 +2037,14 @@
     if (monthChanged) {
       toast("已记到 " + savedMonth.slice(0, 4) + " 年 " + Number(savedMonth.slice(5)) + " 月");
     }
+  }
+
+  /* 补记昨天/前天的账：一键把日期挪过去，不用打开原生日历 */
+  function setDayOffset(offset) {
+    var d = new Date();
+    d.setDate(d.getDate() - offset);
+    ui.day = ymd(d);
+    render();
   }
 
   /* 离开记账页时把表单恢复默认，下次进来是干净的一笔（否则会沿用上次的收入/账户/日期） */
@@ -2530,6 +2564,8 @@
     else if (act === "setToWallet") { if (v === ui.walletId) { toast("与转出账户相同"); return; } ui.toWalletId = v; render(); }
     else if (act === "key") keyInput(v);
     else if (act === "saveEntry") saveEntry(id || null);
+    else if (act === "saveAndNew") saveEntry(null, true);
+    else if (act === "dayOffset") setDayOffset(Number(v) || 1);
     else if (act === "delEntry") deleteEntry(id);
     else if (act === "editEntry") { ui._loaded = false; location.hash = "#/entry?id=" + encodeURIComponent(id); }
     else if (act === "back") { resetEntryForm(); location.hash = "#/book"; }
