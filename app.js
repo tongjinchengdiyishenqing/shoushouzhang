@@ -150,6 +150,21 @@
      同步码 = 账号凭证 + 加密密钥的人类可读编码，别截图外传。 */
 
   var AUTH_KEY = "sz.auth.v1";
+  /* 这台设备上的账本属于哪个账号。
+     用户注销后换个号（或同名重注册）回来，如果本机旧账本还在，
+     登录时的自动同步会把它推给新账号 —— 表现就是「注销重注册，老数据又回来了」。
+     有了归属标记，登录时一看不是同一个号就先把本机清空，再走同步。 */
+  var OWNER_KEY = "sz.owner.v1";
+
+  function readOwner() {
+    try { return localStorage.getItem(OWNER_KEY) || ""; } catch (e) { return ""; }
+  }
+  function writeOwner(id) {
+    try { localStorage.setItem(OWNER_KEY, String(id || "")); } catch (e) {}
+  }
+  function dropOwner() {
+    try { localStorage.removeItem(OWNER_KEY); } catch (e) {}
+  }
   /* 接口地址：默认官方后端；想接自建服务器或本地联调，
      把 localStorage['sz.apiBase.v1'] 设成自己的 /api/v1 地址就行 */
   var AUTH_API = (function () {
@@ -317,6 +332,12 @@
         token: res.body.token, userId: res.body.userId,
         username: res.body.username, revision: 0, lastSyncAt: 0
       };
+      // 本机留着别的账号的账本 → 先清掉，绝不能推给这个账号
+      var prevOwner = readOwner();
+      if (prevOwner && String(prevOwner) !== String(auth.userId)) {
+        clearLocalBook();
+      }
+      writeOwner(auth.userId);
       saveAuth();
       return window.SZSync.deriveKeyFromPassword(p, auth.username).then(function (key) {
         _szKey = key;
@@ -333,7 +354,10 @@
       return afterAuthPull();
     }).catch(function (e) {
       ui.syncing = false;
-      toast(e.message || "网络不通", null, null, 2600);
+      var msg = e.message || "网络不通";
+      // 429 = 撞上注册/登录限流（每 IP 每分钟 5 次），说人话，别让用户以为是密码错了
+      if (/429/.test(msg)) msg = "操作太频繁，等一分钟再试";
+      toast(msg, null, null, 2600);
       render();
     });
   }
@@ -450,6 +474,7 @@
     saveAuth();
     clearKeyRaw();
     clearLocalBook();
+    dropOwner();
     toast(msg || "已退出，本机数据已清除", null, null, 2800);
     render();
   }
@@ -492,6 +517,7 @@
       saveAuth();
       clearKeyRaw();
       clearLocalBook();
+      dropOwner();
       toast("账号已注销，本机数据已清除", null, null, 2800);
       render();
     }).catch(function (e) {
@@ -1596,6 +1622,7 @@
               "</div>" +
               '<div class="hline">' +
                 '<span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股@" + fmtPrice(x.costCents) + "</span>" +
+                '<span class="hrow-act" data-act="openStock" data-code="' + esc(x.code) + '">评分 ›</span>' +
                 '<span class="pnl ' + (pnlUp ? "up" : pnlDown ? "down" : "") + '">' +
                   (x.stale ? "待更新" :
                     (x.pnl >= 0 ? "+" : "-") + fmtMoneyShort(x.pnl) +
@@ -1638,6 +1665,265 @@
     setTimeout(function () { refreshQuotes(false); }, 0);
 
     return head + '<div class="card ov-card"><div class="card-title">明细</div>' + rows + "</div>" + form;
+  }
+
+
+  /* ================= 视图：个股详情（股息体检） =================
+     数据全来自后端分析服务：/score/{code} 给股息评分，/dividends/{code} 给历史分红。
+     两者都是只读接口，断网就显示「拉不到」，账本本身不受影响。
+     「分红到账」是这里唯一的写操作——按除权日 × 持股数生成流水，
+     和手动记一笔走同一张 entries 表，去重靠 origin+day+cents+code。 */
+
+  function stockState() {
+    if (!ui.stock) {
+      ui.stock = { code: "", data: null, divs: null, loading: false, error: "", at: 0, sync: null, walletId: "" };
+    }
+    return ui.stock;
+  }
+
+  function loadStockDetail(code, force) {
+    var st = stockState();
+    if (!code) return;
+    if (st.loading) return;
+    if (!force && st.code === code && st.data && Date.now() - st.at < 10 * 60 * 1000) return;
+    st.code = code;
+    st.loading = true;
+    st.error = "";
+    if (!st.data || st.data.ts_code !== code) st.data = null;
+    render();
+
+    function get(path) {
+      return apiFetch(path, {}).then(function (r) {
+        if (!r.ok) throw new Error((r.body && (r.body.detail || r.body.message)) || ("HTTP " + r.status));
+        return r.body;
+      });
+    }
+
+    Promise.all([get("/score/" + encodeURIComponent(code)), get("/dividends/" + encodeURIComponent(code))])
+      .then(function (res) {
+        if (stockState().code !== code) return;
+        st.loading = false;
+        st.data = res[0];
+        st.divs = res[1] || [];
+        st.at = Date.now();
+        render();
+      })
+      .catch(function (e) {
+        if (stockState().code !== code) return;
+        st.loading = false;
+        st.error = (e && e.message) || "拉不到这只的数据";
+        render();
+      });
+  }
+
+  /* 把历史分红按「我的持股数」折成钱：只有除权日在持仓期内才该算我的 */
+  function mySharesOf(code) {
+    var hs = (db.holdings || []).filter(function (h) { return h.code === code; });
+    return hs.reduce(function (a, h) { return a + (Number(h.shares) || 0); }, 0);
+  }
+
+  function divRowsFor(code) {
+    var st = stockState();
+    var shares = mySharesOf(code);
+    var cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 24);
+    var cut = ymd(cutoff);
+    return (st.divs || []).filter(function (d) {
+      return d.ex_date && d.cash_div_pretax > 0 && d.ex_date >= cut;
+    }).map(function (d) {
+      var dps = Number(d.cash_div_pretax) || 0;
+      return {
+        exDate: d.ex_date, dps: dps,
+        amountCents: Math.round(dps * shares * 100),
+        shares: shares,
+        done: (db.entries || []).some(function (e) {
+          return e.origin === "dividend" && e.day === d.ex_date &&
+            e.cents === Math.round(dps * shares * 100) &&
+            String(e.memo || "").indexOf(code) >= 0;
+        })
+      };
+    });
+  }
+
+  /* 生成待确认清单（不写库）：用户得看一眼再点头，自动写错了比不写更糟 */
+  function startDivSync(code) {
+    var st = stockState();
+    var shares = mySharesOf(code);
+    if (!shares) { toast("先在持仓里加这只，才知道该给你算多少"); return; }
+    var rows = divRowsFor(code).filter(function (x) { return !x.done && x.amountCents > 0; });
+    if (!rows.length) { toast("近两年没有可补的分红，或已经记过了"); return; }
+    st.sync = rows;
+    var invest = (db.wallets || []).filter(function (w) { return /投资|证券|股票/.test(w.name); })[0];
+    st.walletId = invest ? invest.id : ((db.wallets[0] || {}).id || "");
+    render();
+  }
+
+  function commitDivSync(code) {
+    var st = stockState();
+    var rows = st.sync || [];
+    if (!rows.length) return;
+    var w = st.walletId;
+    if (!w) { toast("先选个账户"); return; }
+    var name = (st.data && st.data.name) || code;
+    var added = 0;
+    rows.forEach(function (x) {
+      if (x.done || !x.amountCents) return;
+      db.entries.unshift({
+        id: uid("e"), flow: "in", cents: x.amountCents, tagId: "t_div",
+        walletId: w, day: x.exDate,
+        memo: name + " 分红 " + code,
+        origin: "dividend", at: Date.now()
+      });
+      x.done = true;
+      added++;
+    });
+    save();
+    st.sync = null;
+    toast("已记 " + added + " 笔分红，去账本里能看到");
+    render();
+  }
+
+  function sdBar(label, v, cls) {
+    var n = Math.max(0, Math.min(100, Number(v) || 0));
+    return '<div class="sd-dim">' +
+      '<span class="lb">' + label + "</span>" +
+      '<span class="tr"><i class="' + (cls || "") + '" style="width:' + n.toFixed(1) + '%"></i></span>' +
+      '<b>' + n.toFixed(0) + "</b></div>";
+  }
+
+  function viewStock(code) {
+    var st = stockState();
+    var d = st.data && st.data.ts_code === code ? st.data : null;
+    var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div>' +
+      "<h1>" + esc((d && d.name) || code || "个股") + '</h1><div class="icon-btn"></div></div>';
+
+    if (!code) return head + '<div class="empty">没带股票代码</div>';
+    if (!d && !st.loading && !st.error) setTimeout(function () { loadStockDetail(code); }, 0);
+
+    var hs = (db.holdings || []).filter(function (h) { return h.code === code; })[0];
+    var body = "";
+
+    if (st.error && !d) {
+      body = '<div class="empty">' + esc(st.error) +
+        '<div class="empty-act" data-act="sdReload" data-code="' + esc(code) + '">重试</div></div>';
+      return head + body;
+    }
+    if (!d) {
+      return head + '<div class="dc-skel"><i></i><i></i><i></i></div>';
+    }
+
+    /* --- 价格 + 我的持仓 --- */
+    var priceCents = hs && hs.priceCents != null ? hs.priceCents : Math.round((d.close || 0) * 100);
+    var mv = hs ? Math.round(hs.shares * priceCents) : 0;
+    var cost = hs ? Math.round(hs.shares * hs.costCents) : 0;
+    var pnl = mv - cost;
+    var pnlPct = cost ? (pnl / cost) * 100 : 0;
+
+    body += '<div class="hero sd-hero">' +
+      '<div class="label">' + esc(code) + (d.score_date ? " · 数据 " + esc(d.score_date) : "") + "</div>" +
+      '<div class="big"><span class="cur">¥</span>' + money(priceCents) + "</div>" +
+      (hs
+        ? '<div class="delta ' + (pnl < 0 ? "down" : pnl > 0 ? "up" : "") + '">持有 <b>' + fmtShares(hs.shares) +
+          "</b> 股 · 市值 <b>¥" + money(mv) + "</b> · 盈亏 <b>" + (pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(pnl)) +
+          "（" + (pnlPct >= 0 ? "+" : "") + pnlPct.toFixed(1) + "%）</b></div>"
+        : '<div class="delta">还没买这只 · 下面可以看它的股息质量</div>') +
+      "</div>";
+
+    /* --- 股息评分 --- */
+    var score = Number(d.composite_score);
+    var scoreOk = isFinite(score);
+    var grade = !scoreOk ? "无评分" : score >= 80 ? "优秀" : score >= 60 ? "还不错" : score >= 40 ? "一般" : "偏弱";
+    body += '<div class="card ov-card sd-score">' +
+      '<div class="card-title">股息评分</div>' +
+      '<div class="sd-top">' +
+        '<div class="sd-big">' + (scoreOk ? score.toFixed(0) : "—") + "</div>" +
+        '<div class="sd-top-r">' +
+          "<b>" + grade + "</b>" +
+          "<span>当前股息率 " + (d.current_yield != null ? (d.current_yield * 100).toFixed(2) + "%" : "—") + "</span>" +
+          "<span>连续分红 " + (d.consecutive_years != null ? d.consecutive_years + " 年" : "—") +
+            " · 累计 " + (d.total_dividend_count != null ? d.total_dividend_count + " 次" : "—") + "</span>" +
+        "</div>" +
+      "</div>" +
+      sdBar("稳定性", d.stability_score) +
+      sdBar("成长性", d.growth_score) +
+      sdBar("连续性", d.continuity_score) +
+      sdBar("稳健度", d.steadiness_score) +
+      sdBar("覆盖度", d.coverage_score) +
+      '<div class="sd-note">' +
+        (d.avg3_year_dividend ? "近 3 年平均每股分红 ¥" + d.avg3_year_dividend + " · " : "") +
+        (d.cagr5 != null ? (d.cagr_label || "近 5 年增长率") + " " + Number(d.cagr5).toFixed(1) + "%" : "") +
+      "</div>" +
+      (d.forecast_source
+        ? '<div class="sd-note">预测：分红 ¥' + (d.predicted_d0 != null ? Number(d.predicted_d0).toFixed(2) : "—") +
+          " · 增速 " + (d.predicted_g != null ? (Number(d.predicted_g) * 100).toFixed(1) + "%" : "—") +
+          "（" + esc(d.forecast_source) + (d.forecast_year ? " · " + d.forecast_year : "") + "）</div>"
+        : "") +
+    "</div>";
+
+    /* --- 估值：PE / PB / ROE / 市赚率 --- */
+    var pe = Number(d.pe), pb = Number(d.pb);
+    var roe = pe > 0 && pb > 0 ? (pb / pe) * 100 : null;   // ROE ≈ PB / PE
+    var pr = roe && roe > 0 ? pe / roe : null;            // 市赚率 = PE ÷ ROE%
+    var prText = pr == null ? "—"
+      : pr < 1 ? "便宜（<1）" : pr < 2 ? "合理（1–2）" : "偏贵（>2）";
+    body += '<div class="card ov-card">' +
+      '<div class="card-title">估值</div>' +
+      '<div class="sd-grid">' +
+        '<div><i>PE</i><b>' + (isFinite(pe) && pe > 0 ? pe.toFixed(1) : "—") + "</b></div>" +
+        '<div><i>PB</i><b>' + (isFinite(pb) && pb > 0 ? pb.toFixed(2) : "—") + "</b></div>" +
+        '<div><i>ROE</i><b>' + (roe != null ? roe.toFixed(1) + "%" : "—") + "</b></div>" +
+        '<div><i>市赚率</i><b>' + (pr != null ? pr.toFixed(2) : "—") + "</b></div>" +
+      "</div>" +
+      '<div class="sd-note">市赚率 = PE ÷ ROE%，越低越便宜 —— 当前 ' + prText + "</div>" +
+    "</div>";
+
+    /* --- 分红历史 + 到账流水 --- */
+    var rows2 = divRowsFor(code);
+    var shares = mySharesOf(code);
+    var recent12 = rows2.filter(function (x) {
+      return x.exDate >= ymd(new Date(Date.now() - 365 * 86400000));
+    });
+    var sum12 = recent12.reduce(function (a, x) { return a + x.amountCents; }, 0);
+    var hist = rows2.slice(0, 10).map(function (x) {
+      return '<div class="sd-div-row' + (x.done ? " done" : "") + '">' +
+        '<span class="d">' + esc(x.exDate) + "</span>" +
+        '<span class="v">每股 ¥' + x.dps.toFixed(3) + "</span>" +
+        '<span class="a">' + (shares ? "¥" + money(x.amountCents) : "—") + "</span>" +
+        '<span class="t">' + (x.done ? "已记" : "") + "</span>" +
+      "</div>";
+    }).join("");
+
+    var syncBox = "";
+    if (st.sync && st.sync.length) {
+      var wopts = (db.wallets || []).map(function (w) {
+        return '<option value="' + esc(w.id) + '"' + (w.id === st.walletId ? " selected" : "") + ">" + esc(w.name) + "</option>";
+      }).join("");
+      syncBox = '<div class="sd-sync">' +
+        '<div class="sd-sync-h">按除权日记 ' + st.sync.length + " 笔到账</div>" +
+        '<select data-act="sdWallet">' + wopts + "</select>" +
+        st.sync.map(function (x) {
+          return '<div class="sd-div-row"><span class="d">' + esc(x.exDate) + "</span>" +
+            '<span class="v">每股 ¥' + x.dps.toFixed(3) + "</span>" +
+            '<span class="a">¥' + money(x.amountCents) + "</span></div>";
+        }).join("") +
+        '<div class="sd-sync-btns">' +
+          '<button class="btn-primary" data-act="sdDivConfirm" data-code="' + esc(code) + '">确认记入账本</button>' +
+          '<button class="btn-ghost" data-act="sdDivCancel">取消</button>' +
+        "</div>" +
+      "</div>";
+    }
+
+    body += '<div class="card ov-card">' +
+      '<div class="card-title">分红到账</div>' +
+      (shares
+        ? '<div class="sd-note">按你持有的 ' + fmtShares(shares) + " 股算，近 12 个月应到账 <b>¥" + money(sum12) + "</b></div>"
+        : '<div class="sd-note">还没持仓这只，先加进持仓才能折算到账金额</div>') +
+      hist +
+      (shares ? '<button class="btn-primary sd-btn" data-act="sdDivSync" data-code="' + esc(code) + '">按持仓算一遍分红</button>' : "") +
+      syncBox +
+    "</div>";
+
+    return head + body;
   }
 
   /* ================= 视图：财务全景 ================= */
@@ -2236,6 +2522,7 @@
 
     d.loading = true;
     d.error = "";
+    d.reqAt = Date.now();
     if (!silent) render();
     var off = append ? d.items.length : 0;
 
@@ -2436,6 +2723,14 @@
         '<div class="empty"><span class="big-emoji">🗳️</span>' +
         "决策广场要先登录，投票才认人<br>" +
         '<div class="empty-act" data-act="dcGoLogin">去登录 ›</div></div>';
+    }
+
+    /* 兜底：隧道抖动时请求可能一直挂着，页面就永远停在骨架屏。
+       超过 12 秒还没回来就当它失败，放掉 loading，下面的逻辑会自己重拉一次。 */
+    if (d.loading && d.reqAt && Date.now() - d.reqAt > 12000) {
+      d.loading = false;
+      d.reqAt = 0;
+      d.error = "";
     }
 
     // 首次进入先拉一次（放到下一轮事件循环，避免在 render 里再触发 render）
@@ -3057,6 +3352,8 @@
     search: "book"
   };
 
+  VIEW_PARENT.stock = "holdings";
+
   function goBack() {
     var v = parseHash().view;
     if (v === "entry") {
@@ -3095,6 +3392,7 @@
     else if (r.view === "stats") body = viewAssets();
     else if (r.view === "assets") body = viewAssets();
     else if (r.view === "holdings") body = viewHoldings();
+    else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
     else if (r.view === "wallets") body = viewWallets();
@@ -3109,7 +3407,7 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
-      : (r.view === "holdings" || r.view === "overview") ? "assets"
+      : (r.view === "holdings" || r.view === "overview" || r.view === "stock") ? "assets"
       : (r.view === "wallets" || r.view === "tags") ? "config"
       : r.view === "search" ? "book"
       : r.view;
@@ -4108,6 +4406,11 @@
     else if (act === "goWallet") { location.hash = "#/wallet?id=" + encodeURIComponent(id); }
     else if (act === "gotoMonth") { if (v) { ui.month = v; render(); } }
     else if (act === "goOverview") { location.hash = "#/overview"; }
+    else if (act === "openStock") { location.hash = "#/stock?code=" + encodeURIComponent(el.getAttribute("data-code") || ""); }
+    else if (act === "sdReload") { loadStockDetail(el.getAttribute("data-code") || "", true); }
+    else if (act === "sdDivSync") { startDivSync(el.getAttribute("data-code") || ""); }
+    else if (act === "sdDivConfirm") { commitDivSync(el.getAttribute("data-code") || ""); }
+    else if (act === "sdDivCancel") { stockState().sync = null; render(); }
     else if (act === "addHolding") addHolding();
     else if (act === "pickStock") pickStock(el.getAttribute("data-code") || "", el.getAttribute("data-name") || "");
     else if (act === "delHolding") delHolding(id);
@@ -4204,6 +4507,7 @@
   document.addEventListener("change", function (ev) {
     var el = ev.target;
     var act = el.getAttribute && el.getAttribute("data-act");
+    if (act === "sdWallet") { stockState().walletId = el.value; return; }
     if (act === "autoTag") {
       var a = autoState();
       var i = Number(el.getAttribute("data-id"));
