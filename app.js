@@ -1392,7 +1392,8 @@
     var form =
       '<div class="card"><div class="card-title">加一只</div>' +
         '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="600519.SH" value="' + esc(ui.hCode) + '"></div>' +
-        '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="可不填" value="' + esc(ui.hName) + '"></div>' +
+        '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="填代码后自动带出" value="' + esc(ui.hName) + '">' +
+          '<span class="name-hint"></span></div>' +
         '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
         '<div class="field-row"><label>成本价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="1500.00" value="' + esc(ui.hCost) + '"></div>' +
       "</div>" +
@@ -2484,6 +2485,64 @@
 
   /* ================= 持仓增删 ================= */
 
+  /* 输入代码自动带出股票名称：省得手打，也避免名称填错。
+     查过就记住，同一个代码不重复请求。 */
+  var _lookupTimer = null, _nameLooked = "", _autoName = "";
+
+  function scheduleNameLookup() {
+    if (_lookupTimer) clearTimeout(_lookupTimer);
+    _lookupTimer = setTimeout(function () {
+      _lookupTimer = null;
+      lookupHoldingName();
+    }, 600);
+  }
+
+  function lookupHoldingName() {
+    var norm = normCode(ui.hCode);
+    var hint = document.querySelector(".name-hint");
+    if (!/^[0-9]{6}\.(SH|SZ|BJ)$/.test(norm)) {
+      if (hint) { hint.textContent = ""; hint.classList.remove("live"); }
+      // 代码被清空/改坏：把之前自动填的名称也撤掉
+      if (_autoName && ui.hName === _autoName) {
+        ui.hName = "";
+        _autoName = "";
+        var el0 = document.querySelector('[data-act="hName"]');
+        if (el0) el0.value = "";
+      }
+      return;
+    }
+    if (_nameLooked === norm) return;
+    _nameLooked = norm;
+
+    if (hint) { hint.textContent = "查询中…"; hint.classList.remove("live"); }
+
+    fetch(QUOTE_API + "?codes=" + encodeURIComponent(norm), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var q = j && j.quotes && j.quotes[norm];
+        var name = q && q.name;
+        var h = document.querySelector(".name-hint");
+        if (!name) {
+          if (h) { h.textContent = ""; h.classList.remove("live"); }
+          return;
+        }
+        // 用户已经自己填了名字就不覆盖
+        if (ui.hName && ui.hName.trim() && ui.hName !== _autoName) {
+          if (h) { h.textContent = ""; h.classList.remove("live"); }
+          return;
+        }
+        ui.hName = name;
+        _autoName = name;
+        var input = document.querySelector('[data-act="hName"]');
+        if (input) input.value = name;
+        if (h) { h.textContent = "已自动填好"; h.classList.add("live"); }
+      })
+      .catch(function () {
+        var h = document.querySelector(".name-hint");
+        if (h) { h.textContent = ""; h.classList.remove("live"); }
+      });
+  }
+
   function addHolding() {
     var code = normCode(ui.hCode);
     var name = String(ui.hName || "").trim();
@@ -2511,6 +2570,7 @@
       toast("已加 " + (name || code));
     }
     ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = "";
+    _nameLooked = ""; _autoName = "";   // 重置查询缓存，下一只重新查
     save();
     render();
   }
@@ -2628,7 +2688,7 @@
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "setDay") ui.day = el.value;
     else if (act === "setMemo") ui.memo = el.value;
-    else if (act === "hCode") ui.hCode = el.value;
+    else if (act === "hCode") { ui.hCode = el.value; scheduleNameLookup(); }
     else if (act === "hName") ui.hName = el.value;
     else if (act === "hShares") ui.hShares = el.value;
     else if (act === "hCost") ui.hCost = el.value;
