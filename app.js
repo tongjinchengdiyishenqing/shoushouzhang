@@ -580,6 +580,17 @@
   function tagIcon(t) {
     return iconOf(t.customIcon || t.id, iconOf("t_misc"));
   }
+
+  /* 每个分类/账户都自带 color 和 tint（低饱和），之前 UI 一直没用。
+     学钱往：未选 = 浅色底 + 彩色图标，选中 = 实色底 + 白图标，靠颜色一眼区分。 */
+  function tagColor(t) { return (t && t.color) || "#767680"; }
+  function tagTint(t) { return (t && t.tint) || "#F1F1F4"; }
+
+  function gStyle(t, on) {
+    return on
+      ? ' style="background:' + tagColor(t) + ";color:#fff\""
+      : ' style="background:' + tagTint(t) + ";color:" + tagColor(t) + '"';
+  }
   function walletById(id) {
     for (var i = 0; i < db.wallets.length; i++) if (db.wallets[i].id === id) return db.wallets[i];
     return { id: id, name: "未知", glyph: "•", opening: 0 };
@@ -821,7 +832,7 @@
           : '<span>' + esc(w.name) + "</span><span>" + esc(t.name) + "</span>";
         return (
           '<div class="entry" data-act="editEntry" data-id="' + esc(e.id) + '">' +
-            '<div class="glyph">' + tagIcon(t) + "</div>" +
+            '<div class="glyph"' + gStyle(t, false) + ">" + tagIcon(t) + "</div>" +
             '<div class="body">' +
               '<div class="title">' + esc(e.memo || (e.flow === "move" ? "转账" : t.name)) + "</div>" +
               '<div class="meta">' + metaHtml + "</div>" +
@@ -885,8 +896,9 @@
           '<div class="card-title">分类</div>' +
           '<div class="tag-grid">' +
             tags.map(function (t) {
-              return '<div class="tag-cell ' + (ui.tagId === t.id ? "on" : "") + '" data-act="setTag" data-v="' + t.id + '">' +
-                '<span class="g">' + tagIcon(t) + "</span><span>" + esc(t.name) + "</span></div>";
+              var ton = ui.tagId === t.id;
+              return '<div class="tag-cell ' + (ton ? "on" : "") + '" data-act="setTag" data-v="' + t.id + '">' +
+                '<span class="g"' + gStyle(t, ton) + ">" + tagIcon(t) + "</span><span>" + esc(t.name) + "</span></div>";
             }).join("") +
           "</div>" +
         "</div>";
@@ -1075,7 +1087,7 @@
             : s.list.filter(function (e) { return e.flow === flow && e.tagId === t.id; }).length;
           var pct = Math.round(t.pct * 100);
           return '<div class="rk">' +
-            '<div class="g">' + tagIcon(t) + "</div>" +
+            '<div class="g"' + gStyle(t, false) + ">" + tagIcon(t) + "</div>" +
             '<div class="body">' +
               '<div class="r1"><span class="nm">' + esc(t.name) + "</span>" +
                 '<span class="amt">¥' + money(t.cents) + "</span></div>" +
@@ -1545,7 +1557,7 @@
         return e.walletId === w.id || e.toWalletId === w.id;
       }).length;
       return '<div class="mrow" data-act="editWallet" data-id="' + esc(w.id) + '">' +
-        '<div class="g">' + iconOf(w.id, iconOf("w_cash")) + "</div>" +
+        '<div class="g"' + gStyle(w, false) + ">" + iconOf(w.id, iconOf("w_cash")) + "</div>" +
         '<div class="body">' +
           '<div class="nm">' + esc(w.name) + "</div>" +
           '<div class="sub">期初 ' + cash(w.opening) + (used ? " · " + used + " 笔" : " · 还没用过") + "</div>" +
@@ -1629,7 +1641,7 @@
         list.map(function (t) {
           var used = db.entries.filter(function (e) { return e.tagId === t.id; }).length;
           return '<div class="mrow" data-act="editTag" data-id="' + esc(t.id) + '">' +
-            '<div class="g">' + tagIcon(t) + "</div>" +
+            '<div class="g"' + gStyle(t, false) + ">" + tagIcon(t) + "</div>" +
             '<div class="body"><div class="nm">' + esc(t.name) + "</div>" +
               '<div class="sub">' + (used ? used + " 笔记录" : "还没用过") + "</div></div>" +
             '<span class="mrow-act del" aria-label="删除" data-act="delTag" data-id="' + esc(t.id) + '">' + iconOf("trash") + "</span>" +
@@ -1755,7 +1767,7 @@
         : e.flow === "in" ? "+¥" + money(e.cents)
         : "¥" + money(e.cents);
       return '<div class="mrow" data-act="openEntry" data-id="' + esc(e.id) + '">' +
-        '<div class="g">' + tagIcon(t) + "</div>" +
+        '<div class="g"' + gStyle(t, false) + ">" + tagIcon(t) + "</div>" +
         '<div class="body"><div class="nm">' + title + "</div>" +
           '<div class="sub">' + sub + "</div></div>" +
         '<div class="bal ' + (e.flow === "in" ? "in" : "") + '">' + amt + "</div>" +
