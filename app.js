@@ -192,7 +192,8 @@
     return window.SZSync.importKeyRaw(raw).then(function (k) { _szKey = k; return k; });
   }
 
-  function syncPush(force) {
+  function syncPush(force, depth) {
+    depth = depth || 0;
     if (!auth || !auth.token) return Promise.resolve({ skipped: true });
     if (ui.syncing) return Promise.resolve({ skipped: true });
     if (ui.applyingRemote) return Promise.resolve({ skipped: true });
@@ -207,9 +208,19 @@
     }).then(function (res) {
       ui.syncing = false;
       if (res.status === 409) {
-        // 别的设备先推过了：不静默覆盖，交给用户决定
-        var serverRev = (res.body && res.body.revision) || 0;
-        return { conflict: true, serverRevision: serverRev };
+        // 别的设备先推过了：拉下来合并再自动重推，不打扰用户。
+        // 只重试一次，避免两端持续互相顶导致的死循环。
+        return syncPull().then(function (pulled) {
+          if (!pulled || !pulled.data || !Array.isArray(pulled.data.entries)) {
+            return { conflict: true };
+          }
+          db = mergeDb(db, pulled.data);
+          auth.revision = pulled.revision;
+          saveAuth();
+          if (parseHash().view === "config" && !ui.authPanel) render();
+          if (depth < 1) return syncPush(true, depth + 1);
+          return { conflict: true };
+        });
       }
       if (!res.ok) throw new Error("HTTP " + res.status);
       auth.revision = res.body.revision;
@@ -286,34 +297,51 @@
   }
 
   /* 登录成功后拉一次云端：有数据就问要不要覆盖本机；没有就把本机推上去 */
+  /* 多端合并：按 id 取并集，同 id 以本机为准（本机刚改过），账本按日期倒序 */
+  function mergeDb(local, remote) {
+    function mergeList(base, over) {
+      var map = {};
+      (base || []).forEach(function (x) { if (x && x.id) map[x.id] = x; });
+      (over || []).forEach(function (x) { if (x && x.id) map[x.id] = x; });
+      return Object.keys(map).map(function (k) { return map[k]; });
+    }
+    var remoteEntries = (remote && remote.entries) || [];
+    var entries = mergeList(remoteEntries, local.entries).sort(function (a, b) {
+      if (a.day !== b.day) return a.day < b.day ? 1 : -1;
+      return (b.at || 0) - (a.at || 0);
+    });
+    var wallets = mergeList(remote && remote.wallets, local.wallets);
+    var tags = mergeTags(mergeList(remote && remote.tags, local.tags));
+    var holdings = mergeList(remote && remote.holdings, local.holdings);
+    return {
+      wallets: wallets.length ? wallets : DEFAULTS.wallets.slice(),
+      tags: tags.length ? tags : DEFAULTS.tags.slice(),
+      entries: entries,
+      holdings: holdings
+    };
+  }
+
+  /* 登录后自动对齐云端：不弹窗、不覆盖，两边按 id 合并后推回云端。
+     多设备时任何一端登录都只是「补齐」，不存在「选错就丢数据」。 */
   function afterAuthPull() {
     return syncPull().then(function (pulled) {
       if (!pulled || pulled.empty) {
-        // 云端还没数据（新注册）：把本机数据推上去，否则同步是空的
+        // 云端还没有数据：把本机推上去
         return syncPush(true).catch(function () {});
       }
       if (!pulled.data || !Array.isArray(pulled.data.entries)) return null;
-      var n = pulled.data.entries.length;
-      if (!confirm("云端有 " + n + " 条记录。\n\n覆盖本机当前数据？\n\n选「取消」= 保留本机，并把本机数据推到云端。")) {
-        auth.revision = pulled.revision;
-        saveAuth();
-        return syncPush(true).catch(function () {});
-      }
-      // 覆盖期间屏蔽自动推送，否则会把刚拉下来的又推回去
-      ui.applyingRemote = true;
-      db = {
-        wallets: pulled.data.wallets && pulled.data.wallets.length ? pulled.data.wallets : DEFAULTS.wallets.slice(),
-        tags: mergeTags(pulled.data.tags),
-        entries: pulled.data.entries,
-        holdings: Array.isArray(pulled.data.holdings) ? pulled.data.holdings : []
-      };
+
+      var before = db.entries.length;
+      db = mergeDb(db, pulled.data);
       auth.revision = pulled.revision;
       auth.lastSyncAt = Date.now();
       saveAuth();
+      // save() 会触发一次自动推送，把合并结果写回云端
       save();
-      ui.applyingRemote = false;
-      toast("已恢复 " + db.entries.length + " 条记录");
-      render();
+      if (parseHash().view === "config") render();
+      if (db.entries.length !== before) {
+        toast("已合并云端数据，共 " + db.entries.length + " 条");
+      }
       return null;
     }).catch(function (e) {
       toast("云端数据拉取失败：" + (e.message || ""), null, null, 2400);
@@ -353,11 +381,9 @@
     toast("正在同步…");
     syncPush(true).then(function (r) {
       if (r.conflict) {
-        toast("另一台设备更新过，本地未覆盖", "强制覆盖", function () {
-          auth.revision = r.serverRevision || 0;
-          saveAuth();
-          syncPush(true).then(function () { toast("已覆盖"); render(); }).catch(function () { toast("同步失败"); });
-        }, 5000);
+        // 极少见（两端几乎同时改）：已经自动合并过一轮，再点一次即可收敛
+        toast("另一端也在改，已合并，请再点一次", null, null, 2600);
+        render();
         return;
       }
       toast("已同步");
