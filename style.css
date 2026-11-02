@@ -1433,3 +1433,65 @@ html, body {
 
 
 
+
+/* ---------- 分析页：支出/收入双栏卡（两张同时显示金额，点了才切换明细） ---------- */
+.flow-pair {
+  display: flex;
+  gap: 9px;
+  padding: 2px var(--pad) 12px;
+}
+.fp-item {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 13px 13px 12px;
+  border-radius: var(--r-block);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+.fp-item.on {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.fp-num {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fp-item.on .fp-num { color: var(--ink); }
+.fp-item.on[data-v="out"] .fp-num { color: var(--neg); }
+.fp-item.on[data-v="in"] .fp-num { color: var(--pos); }
+.fp-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  margin-top: 5px;
+  white-space: nowrap;
+}
+
+/* 日均一行，放在双栏卡下面 */
+.stat-meta {
+  padding: 0 var(--pad) 14px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 当前月份下方的小圆点：三栏里一眼看出停在哪个月 */
+.month-nav .nm.on { position: relative; }
+.month-nav .nm.on::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--ink);
+}
