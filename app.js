@@ -285,10 +285,13 @@
     });
   }
 
-  /* 登录成功后拉一次云端：有数据就问要不要覆盖本机 */
+  /* 登录成功后拉一次云端：有数据就问要不要覆盖本机；没有就把本机推上去 */
   function afterAuthPull() {
     return syncPull().then(function (pulled) {
-      if (!pulled || pulled.empty) return null;
+      if (!pulled || pulled.empty) {
+        // 云端还没数据（新注册）：把本机数据推上去，否则同步是空的
+        return syncPush(true).catch(function () {});
+      }
       if (!pulled.data || !Array.isArray(pulled.data.entries)) return null;
       var n = pulled.data.entries.length;
       if (!confirm("云端有 " + n + " 条记录。\n\n覆盖本机当前数据？\n\n选「取消」= 保留本机，并把本机数据推到云端。")) {
