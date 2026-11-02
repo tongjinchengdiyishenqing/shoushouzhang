@@ -403,20 +403,55 @@
     }).catch(function () { /* 断网就静默跳过，下次再试 */ });
   }
 
+  /* 退出登录 = 本机不再保留这个账号的任何数据。
+     但如果云端还没拿到最新数据就清本机，等于把用户的账删了，
+     所以顺序必须是：先推上去 → 确认成功 → 再清。推不上去就问用户。 */
+  function clearLocalBook() {
+    db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [], holdings: [] };
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) {}
+  }
+
+  function finishLogout(msg) {
+    apiFetch("/auth/logout", { method: "POST" }).catch(function () {});
+    auth = null;
+    _szKey = null;
+    saveAuth();
+    clearKeyRaw();
+    clearLocalBook();
+    toast(msg || "已退出，本机数据已清除", null, null, 2800);
+    render();
+  }
+
   function logoutAccount() {
-    if (!confirm("退出登录？\n\n本机数据保留，重新登录后可以继续同步。")) return;
-    apiFetch("/auth/logout", { method: "POST" }).catch(function () {}).then(function () {
-      auth = null;
-      _szKey = null;
-      saveAuth();
-      clearKeyRaw();
-      toast("已退出登录");
-      render();
+    if (!auth) return;
+    if (!confirm("退出登录？\n\n本机这份账本会被清除（避免换人用这台设备时看到你的账）。\n数据以云端备份为准，重新登录即可恢复。")) return;
+    toast("正在保存到云端…");
+    // 先确保云端是最新的
+    syncPush(true).then(function (r) {
+      if (r && r.authExpired) return;          // 401 已提示，不再继续
+      if (r && r.conflict) {
+        // 别的设备先推过：合并一次再推
+        return syncPull().then(function (pulled) {
+          if (pulled && pulled.data && Array.isArray(pulled.data.entries)) {
+            db = mergeDb(db, pulled.data);
+            auth.revision = pulled.revision;
+            saveAuth();
+            return syncPush(true);
+          }
+        }).then(function () { finishLogout(); });
+      }
+      finishLogout();
+    }).catch(function (e) {
+      // 推不上去：说清楚后果让用户决定
+      if (!confirm("云端同步失败（" + (e.message || "网络不通") + "）。\n\n本机现有 " +
+          db.entries.length + " 条记录，云端可能不是最新的。\n\n" +
+          "现在退出会清除本机数据，未上传的部分将无法恢复。\n\n仍要退出？")) return;
+      finishLogout("已退出（有数据未上传）");
     });
   }
 
   function deleteAccount() {
-    if (!confirm("注销账号？\n\n云端数据和账号会被永久删除，无法恢复。\n本机记账数据保留。")) return;
+    if (!confirm("注销账号？\n\n云端数据和账号会被永久删除，无法恢复。\n本机账本也会一并清除。")) return;
     if (!confirm("再确认一次：这个操作不可撤销，确定注销？")) return;
     apiFetch("/auth/account", { method: "DELETE" }).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -424,7 +459,8 @@
       _szKey = null;
       saveAuth();
       clearKeyRaw();
-      toast("账号已注销");
+      clearLocalBook();
+      toast("账号已注销，本机数据已清除", null, null, 2800);
       render();
     }).catch(function (e) {
       toast("注销失败：" + (e.message || ""), null, null, 2400);
