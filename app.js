@@ -348,6 +348,37 @@
     });
   }
 
+  /* 进到设置页就顺手拉一次云端并合并：这样别的设备刚记的账能看见，
+     不必等用户手动点「立即同步」。10 秒内不重复拉，避免来回切页刷接口。 */
+  var _lastPullAt = 0;
+  function pullMergeIfNeeded() {
+    if (!auth || !auth.token) return;
+    if (ui.syncing || ui.applyingRemote) return;
+    var now = Date.now();
+    if (now - _lastPullAt < 10000) return;
+    _lastPullAt = now;
+    syncPull().then(function (pulled) {
+      if (!pulled || !pulled.data || !Array.isArray(pulled.data.entries)) return;
+      var before = db.entries.length;
+      var merged = mergeDb(db, pulled.data);
+      if (merged.entries.length === before) {
+        // 没有新东西：只更新版本号，不写库也不重绘，避免无谓抖动
+        if (pulled.revision > (auth.revision || 0)) {
+          auth.revision = pulled.revision;
+          saveAuth();
+        }
+        return;
+      }
+      db = merged;
+      auth.revision = pulled.revision;
+      auth.lastSyncAt = Date.now();
+      saveAuth();
+      save();
+      if (parseHash().view === "config") render();
+      toast("已合并云端数据，共 " + db.entries.length + " 条");
+    }).catch(function () { /* 断网就静默跳过，下次再试 */ });
+  }
+
   function logoutAccount() {
     if (!confirm("退出登录？\n\n本机数据保留，重新登录后可以继续同步。")) return;
     apiFetch("/auth/logout", { method: "POST" }).catch(function () {}).then(function () {
@@ -1740,6 +1771,8 @@
     }
     // 行情页自动轮询：换到别的页会把定时器停掉，不白跑请求
     startQuotePoll();
+    // 进设置页顺手对一次云端，别的设备刚记的账才看得见
+    if (r.view === "config") pullMergeIfNeeded();
   }
 
   /* ================= 交互 ================= */
