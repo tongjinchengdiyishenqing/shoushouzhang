@@ -3000,6 +3000,30 @@
 
   /* ================= 视图：设置 ================= */
 
+  /* 微信里做不了强制刷新，页面被旧版 Service Worker 缓存锁住时用户只能干瞪眼。
+     这个按钮把缓存和 SW 全部清掉再重载，等于一次干净的重新安装。 */
+  function forceUpdate() {
+    toast("正在更新…", null, null, 2000);
+    function done() { location.reload(); }
+    var jobs = [];
+    try {
+      if (window.caches && caches.keys) {
+        jobs.push(caches.keys().then(function (keys) {
+          return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }).catch(function () {}));
+      }
+    } catch (e) {}
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+          return Promise.all(rs.map(function (r) { return r.unregister(); }));
+        }).catch(function () {}));
+      }
+    } catch (e) {}
+    Promise.all(jobs).then(done).catch(done);
+    setTimeout(done, 1500);   // 兜底：清缓存卡住也要重载
+  }
+
   function viewConfig() {
     var size = 0;
     try { size = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) { size = 0; }
@@ -3067,6 +3091,7 @@
         '<div class="list-row"><span>版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
         '<div class="list-row"><span>数据位置</span><span class="hint">本机 localStorage</span></div>' +
         '<div class="list-row"><span>联网</span><span class="hint">只有报价需要</span></div>' +
+        '<div class="list-row" data-act="forceUpdate"><span>检查更新</span><span class="hint">清缓存并重新加载 ›</span></div>' +
       "</div>"
     );
   }
@@ -4480,6 +4505,7 @@
     else if (act === "logoutAccount") logoutAccount();
     else if (act === "deleteAccount") deleteAccount();
     else if (act === "syncNow") syncNow();
+    else if (act === "forceUpdate") forceUpdate();
   });
 
   document.addEventListener("input", function (ev) {
