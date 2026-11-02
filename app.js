@@ -1391,7 +1391,8 @@
 
     var form =
       '<div class="card"><div class="card-title">加一只</div>' +
-        '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="600519.SH" value="' + esc(ui.hCode) + '"></div>' +
+        '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="输入代码或名称搜，如 茅台" value="' + esc(ui.hCode) + '"></div>' +
+        '<div class="ss-list"></div>' +
         '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="填代码后自动带出" value="' + esc(ui.hName) + '">' +
           '<span class="name-hint"></span></div>' +
         '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
@@ -2543,6 +2544,56 @@
       });
   }
 
+  /* 模糊搜索：记不住代码就输名字。走后端 /stocks?keyword=，
+     代码和名称都能匹配，点一条直接填好代码+名称。 */
+  var _ssTimer = null, _ssSeq = 0;
+
+  function searchStocks(kw) {
+    if (_ssTimer) clearTimeout(_ssTimer);
+    var raw = String(kw || "").trim();
+    var box = document.querySelector(".ss-list");
+    if (!raw) {
+      if (box) { box.innerHTML = ""; box.classList.remove("show"); }
+      return;
+    }
+    _ssTimer = setTimeout(function () {
+      var seq = ++_ssSeq;
+      var b = document.querySelector(".ss-list");
+      if (b) { b.innerHTML = '<div class="ss-loading">搜索中…</div>'; b.classList.add("show"); }
+      fetch(AUTH_API + "/stocks?keyword=" + encodeURIComponent(raw) + "&limit=12", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (seq !== _ssSeq) return;                 // 输入又变了，丢弃过期结果
+          var items = (j && j.items) || [];
+          var bb = document.querySelector(".ss-list");
+          if (!bb) return;
+          if (!items.length) {
+            bb.innerHTML = '<div class="ss-empty">没找到「' + esc(raw) + '」</div>';
+          } else {
+            bb.innerHTML = items.map(function (x) {
+              return '<div class="ss-item" data-act="pickStock" data-code="' + esc(x.ts_code) +
+                '" data-name="' + esc(x.name) + '">' +
+                '<span class="code">' + esc(x.ts_code) + "</span>" +
+                '<span class="name">' + esc(x.name) + "</span></div>";
+            }).join("");
+          }
+          bb.classList.add("show");
+        })
+        .catch(function () {
+          var bb = document.querySelector(".ss-list");
+          if (bb) bb.innerHTML = '<div class="ss-empty">搜索失败，检查网络</div>';
+        });
+    }, 280);
+  }
+
+  function pickStock(code, name) {
+    ui.hCode = code;
+    ui.hName = name;
+    _autoName = name;
+    _nameLooked = code;
+    render();
+  }
+
   function addHolding() {
     var code = normCode(ui.hCode);
     var name = String(ui.hName || "").trim();
@@ -2636,6 +2687,7 @@
     else if (act === "gotoMonth") { if (v) { ui.month = v; render(); } }
     else if (act === "goOverview") { location.hash = "#/overview"; }
     else if (act === "addHolding") addHolding();
+    else if (act === "pickStock") pickStock(el.getAttribute("data-code") || "", el.getAttribute("data-name") || "");
     else if (act === "delHolding") delHolding(id);
     else if (act === "refreshQuotes") refreshQuotes(true);
     else if (act === "toggleMenu") { location.hash = "#/config"; }
@@ -2688,7 +2740,7 @@
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "setDay") ui.day = el.value;
     else if (act === "setMemo") ui.memo = el.value;
-    else if (act === "hCode") { ui.hCode = el.value; scheduleNameLookup(); }
+    else if (act === "hCode") { ui.hCode = el.value; scheduleNameLookup(); searchStocks(el.value); }
     else if (act === "hName") ui.hName = el.value;
     else if (act === "hShares") ui.hShares = el.value;
     else if (act === "hCost") ui.hCost = el.value;
