@@ -909,8 +909,9 @@
       return '<div class="wal-line">' +
         db.wallets.map(function (w) {
           var dis = skipId && w.id === skipId ? " is-dim" : "";
-          return '<div class="wal-pill' + (curId === w.id ? " on" : "") + dis + '" data-act="' + act + '" data-v="' + w.id + '">' +
-            '<span class="g">' + iconOf(w.id, iconOf("w_cash")) + "</span>" + esc(w.name) + "</div>";
+          var won = curId === w.id;
+          return '<div class="wal-pill' + (won ? " on" : "") + dis + '" data-act="' + act + '" data-v="' + w.id + '">' +
+            '<span class="g"' + (won ? "" : gStyle(w, false)) + ">" + iconOf(w.id, iconOf("w_cash")) + "</span>" + esc(w.name) + "</div>";
         }).join("") +
       "</div>";
     }
@@ -1109,7 +1110,7 @@
     var total = db.wallets.reduce(function (s, w) { return s + (bal[w.id] || 0); }, 0);
     var rows = db.wallets.map(function (w) {
       var v = bal[w.id] || 0;
-      return '<div class="wallet"><div class="left"><div class="g">' + iconOf(w.id, iconOf("w_cash")) + "</div>" +
+      return '<div class="wallet"><div class="left"><div class="g"' + gStyle(w, false) + ">" + iconOf(w.id, iconOf("w_cash")) + "</div>" +
         '<div><div class="nm">' + esc(w.name) + '</div><div class="sub">期初 ' + cash(w.opening) + "</div></div></div>" +
         '<div class="bal">' + cash(v) + "</div></div>";
     }).join("");
