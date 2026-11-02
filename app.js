@@ -2183,7 +2183,7 @@
      上次的结果存在本地，进页面先铺上去（0ms 出内容），
      再在后台拉新的替换。用户看到的是「立刻有内容 + 悄悄更新」，
      而不是「白屏转圈 600ms」。 */
-  var DC_CACHE_KEY = "sz.decide.cache.v1";
+  var DC_CACHE_KEY = "sz.decide.cache.v2";   // v2：列表开始带 isMine，旧缓存要作废
 
   function dcCacheKey() {
     // 换账号就不能复用别人的缓存
