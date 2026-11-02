@@ -192,6 +192,18 @@
     return window.SZSync.importKeyRaw(raw).then(function (k) { _szKey = k; return k; });
   }
 
+  /* 登录态失效（账号被删/密码改过/token 过期）：必须让用户看见，
+     否则同步一直静默失败，用户只会觉得"数据莫名其妙没了" */
+  function handleAuthExpired() {
+    if (!auth) return;
+    auth = null;
+    _szKey = null;
+    saveAuth();
+    clearKeyRaw();
+    toast("登录已过期，请重新登录", null, null, 3200);
+    render();
+  }
+
   function syncPush(force, depth) {
     depth = depth || 0;
     if (!auth || !auth.token) return Promise.resolve({ skipped: true });
@@ -207,6 +219,10 @@
       });
     }).then(function (res) {
       ui.syncing = false;
+      if (res.status === 401) {
+        handleAuthExpired();
+        return { authExpired: true };
+      }
       if (res.status === 409) {
         // 别的设备先推过了：拉下来合并再自动重推，不打扰用户。
         // 只重试一次，避免两端持续互相顶导致的死循环。
@@ -238,6 +254,10 @@
   function syncPull() {
     if (!auth || !auth.token) return Promise.reject(new Error("还没开启同步"));
     return apiFetch("/sync/pull").then(function (res) {
+      if (res.status === 401) {
+        handleAuthExpired();
+        return { authExpired: true };
+      }
       if (res.status === 404) return { empty: true };
       if (!res.ok) throw new Error("HTTP " + res.status);
       return syncKey().then(function (key) {
@@ -255,7 +275,10 @@
     if (_syncTimer) clearTimeout(_syncTimer);
     _syncTimer = setTimeout(function () {
       _syncTimer = null;
-      syncPush(true).catch(function () { /* 断网就等下次保存再试 */ });
+      syncPush(true).catch(function (e) {
+        // 不能静默吞：同步失败要让用户看到，否则以为存上了其实没有
+        toast("同步失败：" + (e.message || "网络不通"), null, null, 2600);
+      });
     }, SYNC_DEBOUNCE);
   }
 
@@ -326,6 +349,7 @@
   function afterAuthPull() {
     return syncPull().then(function (pulled) {
       if (!pulled || pulled.empty) {
+        if (pulled && pulled.authExpired) return null;
         // 云端还没有数据：把本机推上去
         return syncPush(true).catch(function () {});
       }
