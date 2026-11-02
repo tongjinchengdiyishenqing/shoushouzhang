@@ -13,10 +13,12 @@
 
   var DEFAULTS = {
     wallets: [
-      { id: "w_cash", name: "现金", glyph: "👛", opening: 60000, color: "#C7912F", tint: "#FBF2E2" },
-      { id: "w_pay", name: "移动支付", glyph: "📲", opening: 600000, color: "#3E7FB0", tint: "#EAF1F7" },
-      { id: "w_bank", name: "储蓄卡", glyph: "🏧", opening: 600000, color: "#7B6BA8", tint: "#F0EDF8" },
-      { id: "w_fund", name: "投资户", glyph: "📊", opening: 2000000, color: "#2F7D6E", tint: "#E8F3F0" }
+      // 初始余额一律 0：新用户从零开始，余额靠记账累出来。
+      // 想设起始资金，去「账户」里改这个账户的期初。
+      { id: "w_cash", name: "现金", glyph: "👛", opening: 0, color: "#C7912F", tint: "#FBF2E2" },
+      { id: "w_pay", name: "移动支付", glyph: "📲", opening: 0, color: "#3E7FB0", tint: "#EAF1F7" },
+      { id: "w_bank", name: "储蓄卡", glyph: "🏧", opening: 0, color: "#7B6BA8", tint: "#F0EDF8" },
+      { id: "w_fund", name: "投资户", glyph: "📊", opening: 0, color: "#2F7D6E", tint: "#E8F3F0" }
     ],
     tags: [
       { id: "t_food", name: "吃饭", glyph: "🍚", flow: "out", seq: 1, color: "#D9644A", tint: "#FBEBE7" },
@@ -286,8 +288,13 @@
     _syncTimer = setTimeout(function () {
       _syncTimer = null;
       syncPush(true).catch(function (e) {
-        // 不能静默吞：同步失败要让用户看到，否则以为存上了其实没有
-        toast("同步失败：" + (e.message || "网络不通"), null, null, 2600);
+        var msg = (e && e.message) || "";
+        /* 没有同步密钥（本地密钥被清）只影响云端同步，本机记账照常。
+           这种情况每记一笔都弹「登录已过期」纯属骚扰，
+           改成静默——用户进设置页时会看到同步状态，那儿再提示。 */
+        if (msg.indexOf("登录已过期") >= 0 || msg.indexOf("加密模块") >= 0) return;
+        // 其余是网络类失败，不能静默吞：否则用户以为存上了其实没有
+        toast("同步失败：" + (msg || "网络不通"), null, null, 2600);
       });
     }, SYNC_DEBOUNCE);
   }
@@ -320,6 +327,8 @@
       ui.syncing = false;
       ui.authUser = ""; ui.authPwd = ""; ui.authPanel = "";
       toast(mode === "register" ? "注册成功" : "登录成功");
+      // 登录后落到账本页，别停在配置页
+      if (location.hash !== "#/book") location.hash = "#/book";
       render();
       return afterAuthPull();
     }).catch(function (e) {
@@ -346,11 +355,17 @@
     var wallets = mergeList(remote && remote.wallets, local.wallets);
     var tags = mergeTags(mergeList(remote && remote.tags, local.tags));
     var holdings = mergeList(remote && remote.holdings, local.holdings);
+    // 自动分类的学习结果也要并进来，否则登录/同步一次就白学了
+    var rules = Object.assign({}, (remote && remote.autoRules) || {});
+    Object.keys((local && local.autoRules) || {}).forEach(function (k) {
+      rules[k] = local.autoRules[k];
+    });
     return {
       wallets: wallets.length ? wallets : DEFAULTS.wallets.slice(),
       tags: tags.length ? tags : DEFAULTS.tags.slice(),
       entries: entries,
-      holdings: holdings
+      holdings: holdings,
+      autoRules: rules
     };
   }
 
@@ -422,6 +437,13 @@
   }
 
   function finishLogout(msg) {
+    try {
+      Object.keys(localStorage)
+        .filter(function (k) { return k.indexOf(DC_CACHE_KEY) === 0; })
+        .forEach(function (k) { localStorage.removeItem(k); });
+    } catch (e) {}
+    // 退出后立刻回到登录页（render 会因为 !auth 自动切过去）
+    if (location.hash !== "#/book") location.hash = "#/book";
     apiFetch("/auth/logout", { method: "POST" }).catch(function () {});
     auth = null;
     _szKey = null;
@@ -1001,14 +1023,54 @@
 
   /* ================= 视图：统计 ================= */
 
-  function viewStats() {
+  /* ================= 视图：资产（资产 + 收支统计合成一页） ================= */
+
+  /* 近 6 个月支出柱状：只画支出，当月高亮，点柱子能跳月份。
+     高度上限取「好看的刻度」，柱子才不会挤在一个小角落。 */
+  function monthBars(series, curMonth) {
+    var peak = Math.max.apply(null, series.map(function (x) { return x.out; }).concat([1]));
+    function niceTop(centsPeak) {
+      var yuan = centsPeak / 100;
+      var mag = Math.pow(10, Math.floor(Math.log10(yuan)));
+      var ladder = [1, 1.2, 1.5, 1.8, 2, 2.4, 3, 3.6, 4.5, 5, 6, 7.5, 8, 9, 10];
+      for (var k = 0; k < ladder.length; k++) {
+        if (yuan <= ladder[k] * mag) return ladder[k] * mag * 100;
+      }
+      return 10 * mag * 100;
+    }
+    var top = niceTop(peak);
+    function axisNum(v) {
+      var yuan = v / 100;
+      if (yuan >= 1000) {
+        var k = yuan / 1000;
+        return (Math.abs(k - Math.round(k)) < 0.05 ? Math.round(k) : k.toFixed(1)) + "K";
+      }
+      return String(Math.round(yuan));
+    }
+    return '<div class="chart">' +
+      '<div class="chart-top"><span class="ck">近 6 个月支出</span>' +
+        '<span class="cap">上限 ' + axisNum(top) + "</span></div>" +
+      '<div class="plot"><div class="bars">' +
+        series.map(function (x) {
+          var h = Math.max(2.5, (x.out / top) * 100);
+          var cls = "bar" + (x.m === curMonth ? " on" : "");
+          return '<div class="bar-col" data-act="gotoMonth" data-v="' + x.m + '">' +
+            '<span class="' + cls + '" style="height:' + h + '%"></span></div>';
+        }).join("") +
+      "</div></div>" +
+      '<div class="x-axis">' +
+        series.map(function (x) {
+          return '<div class="xl' + (x.m === curMonth ? " on" : "") + '">' +
+            "<b>" + Number(x.m.slice(5)) + "月</b><em>" + axisNum(x.out) + "</em></div>";
+        }).join("") +
+      "</div></div>";
+  }
+
+  /* 收支 + 分类构成 + 分类明细。月份导航由外层的资产页给，
+     这里只管「这个月花成什么样」。 */
+  function statsBlock() {
     var s = summarize(ui.month);
     var parts = ui.month.split("-");
-    var prevD = new Date(Number(parts[0]), Number(parts[1]) - 2, 1);
-    var nextD = new Date(Number(parts[0]), Number(parts[1]), 1);
-    var prevLabel = Number(prevD.getMonth() + 1) + "月";
-    var nextLabel = Number(nextD.getMonth() + 1) + "月";
-
     var isOut = ui.statsFlow !== "in";
     var flow = isOut ? "out" : "in";
     var rows = isOut ? s.top : s.topIn;
@@ -1016,17 +1078,24 @@
     var days = new Date(Number(parts[0]), Number(parts[1]), 0).getDate();
     var count = s.list.filter(function (e) { return e.flow === flow; }).length;
 
-    var nav =
-      '<div class="month-nav">' +
-        '<span class="nm" data-act="prevMonth">' + prevLabel + "</span>" +
-        '<span class="nm on">' + parts[0] + "年" + Number(parts[1]) + "月</span>" +
-        '<span class="nm" data-act="nextMonth">' + nextLabel + "</span>" +
-      "</div>";
-
-    /* 支出和收入并排成两张卡：不点也能同时看到两个数，
-       点了才切换下面按分类的明细。钱往就是这个结构。 */
     var outN = s.list.filter(function (e) { return e.flow === "out"; }).length;
     var inN = s.list.filter(function (e) { return e.flow === "in"; }).length;
+
+    // 环比：拿上个月同口径比，比只给一个数字有信息量
+    var prevD = new Date(Number(parts[0]), Number(parts[1]) - 2, 1);
+    var prevKey = prevD.getFullYear() + "-" + pad(prevD.getMonth() + 1);
+    var prevS = summarize(prevKey);
+    var prevVal = isOut ? prevS.out : prevS.inc;
+    var mom = "";
+    if (prevVal > 0 && total > 0) {
+      var dp = ((total - prevVal) / prevVal) * 100;
+      var up = dp >= 0;
+      // 支出涨了是坏消息（红），收入涨了是好消息（绿）
+      var good = isOut ? !up : up;
+      mom = '<em class="' + (good ? "up" : "dn") + '">比上月 ' +
+        (up ? "↑" : "↓") + Math.abs(dp).toFixed(0) + "%</em>";
+    }
+
     var pair =
       '<div class="flow-pair">' +
         '<div class="fp-item' + (isOut ? " on" : "") + '" data-act="statsFlow" data-v="out">' +
@@ -1039,20 +1108,24 @@
         "</div>" +
       "</div>";
 
-    var hero =
-      '<div class="stat-meta">日均' + (isOut ? "支出" : "收入") + " ¥" +
-        money(Math.round(total / days)) + " · 共 " + count + " 笔</div>";
+    var meta = '<div class="stat-meta">日均' + (isOut ? "支出" : "收入") + " ¥" +
+      money(Math.round(total / days)) + " · 共 " + count + " 笔" + mom + "</div>";
+
+    // 近 6 个月柱状
+    var series = [];
+    for (var k = 5; k >= 0; k--) {
+      var d = new Date(Number(parts[0]), Number(parts[1]) - 1 - k, 1);
+      var m = d.getFullYear() + "-" + pad(d.getMonth() + 1);
+      series.push({ m: m, out: summarize(m).out });
+    }
+    var bars = monthBars(series, ui.month);
 
     if (!rows.length) {
-      return (
-        '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分析</h1><div class="icon-btn"></div></div>' +
-        nav + pair +
-        '<div class="empty">这个月还没有' + (isOut ? "支出" : "收入") + '记录</div>'
-      );
+      return pair + meta + bars +
+        '<div class="empty">这个月还没有' + (isOut ? "支出" : "收入") + '记录</div>';
     }
 
-    // 前 6 类画环，剩下的合并成「其他」，明细表与图例完全对齐。
-    // 颜色用同色相明度阶梯（墨 → 浅灰），不用彩虹色分类。
+    // 前 6 类画环，其余并成「其他」；同色相明度阶梯，不用彩虹色
     var STEPS = ["#0e0e10", "#3a3a44", "#5f5f6a", "#87878f", "#adadb5", "#cfcfd6"];
     var head = rows.slice(0, 6).map(function (t) {
       var tag = tagById(t.id);
@@ -1062,7 +1135,7 @@
     if (rest > 0) {
       head.push({ id: "t_misc", name: "其他 " + (rows.length - 6) + " 类", cents: rest, pct: total ? rest / total : 0 });
     }
-    head.forEach(function (t, i) { t.color = STEPS[i % STEPS.length]; });
+    head.forEach(function (t, idx) { t.color = STEPS[idx % STEPS.length]; });
 
     var R = 72, SW = 30, C = 2 * Math.PI * R, acc = 0;
     var segs = head.map(function (t) {
@@ -1101,7 +1174,7 @@
             : s.list.filter(function (e) { return e.flow === flow && e.tagId === t.id; }).length;
           var pct = Math.round(t.pct * 100);
           return '<div class="rk">' +
-            '<div class="g"' + gStyle(t, false) + ">" + tagIcon(t) + "</div>" +
+            '<div class="g"' + gStyle(tagById(t.id), false) + ">" + tagIcon(tagById(t.id)) + "</div>" +
             '<div class="body">' +
               '<div class="r1"><span class="nm">' + esc(t.name) + "</span>" +
                 '<span class="amt">¥' + money(t.cents) + "</span></div>" +
@@ -1112,68 +1185,199 @@
         }).join("") +
       "</div>";
 
-    return (
-      '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分析</h1><div class="icon-btn"></div></div>' +
-      nav + pair + hero + donut + table
-    );
+    return pair + meta + bars + donut + table;
   }
 
   function viewAssets() {
     var bal = walletBalances();
-    var total = db.wallets.reduce(function (s, w) { return s + (bal[w.id] || 0); }, 0);
-    var rows = db.wallets.map(function (w) {
-      var v = bal[w.id] || 0;
-      return '<div class="wallet"><div class="left"><div class="g"' + gStyle(w, false) + ">" + iconOf(w.id, iconOf("w_cash")) + "</div>" +
-        '<div><div class="nm">' + esc(w.name) + '</div><div class="sub">期初 ' + cash(w.opening) + "</div></div></div>" +
-        '<div class="bal">' + cash(v) + "</div></div>";
-    }).join("");
+    var cashTotal = db.wallets.reduce(function (a, w) { return a + (bal[w.id] || 0); }, 0);
+    var hs = holdingStats();
+    var netWorth = cashTotal + hs.mv;
+    var parts = ui.month.split("-");
 
-    // 资产构成条：一眼看出钱分布在哪（明度阶梯，不用彩色）
-    var positive = db.wallets
-      .map(function (w) { return { w: w, v: bal[w.id] || 0 }; })
-      .filter(function (x) { return x.v > 0; })
-      .sort(function (a, b) { return b.v - a.v; });
-    var BARS = ["#0e0e10", "#4a4a52", "#8a8a92", "#b8b8c0", "#dcdce3"];
-    var allocBar = positive.length
-      ? '<div class="alloc"><div class="alloc-bar">' +
-          positive.map(function (x, i) {
-            return '<i style="flex:' + x.v + ";background:" + BARS[i % BARS.length] + '"></i>';
-          }).join("") +
+    var prevD = new Date(Number(parts[0]), Number(parts[1]) - 2, 1);
+    var nextD = new Date(Number(parts[0]), Number(parts[1]), 1);
+    var nav =
+      '<div class="month-nav">' +
+        '<span class="nm" data-act="prevMonth">' + Number(prevD.getMonth() + 1) + "月</span>" +
+        '<span class="nm on">' + parts[0] + "年" + Number(parts[1]) + "月</span>" +
+        '<span class="nm" data-act="nextMonth">' + Number(nextD.getMonth() + 1) + "月</span>" +
+      "</div>";
+
+    /* 净资产走势：没有历史快照，用「当前净值 - 之后的净流量」倒推 */
+    var ms = [];
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(Number(parts[0]), Number(parts[1]) - 1 - i, 1);
+      ms.push(d.getFullYear() + "-" + pad(d.getMonth() + 1));
+    }
+    var running = netWorth;
+    var nwSeries = [];
+    for (var j = ms.length - 1; j >= 0; j--) {
+      nwSeries[j] = running;
+      var xs = summarize(ms[j]);
+      running -= (xs.inc - xs.out);
+    }
+    var sMin = Math.min.apply(null, nwSeries);
+    var sMax = Math.max.apply(null, nwSeries);
+    var sSpan = (sMax - sMin) || 1;
+    var VBW = 340, VBY0 = 34, VBY1 = 10;
+    function sparkY(v) { return (VBY0 - ((v - sMin) / sSpan) * (VBY0 - VBY1)).toFixed(1); }
+    var pts = nwSeries.map(function (v, k) {
+      return ((k / (nwSeries.length - 1)) * VBW).toFixed(1) + "," + sparkY(v);
+    }).join(" ");
+    var areaPts = "0,40 " + pts + " " + VBW + ",40";
+    var trendUp = nwSeries[nwSeries.length - 1] >= nwSeries[0];
+
+    var hero =
+      '<div class="hero nw-head">' +
+        '<div class="label">净资产</div>' +
+        '<div class="big"><span class="cur">¥</span>' + money(netWorth) + "</div>" +
+        '<div class="nw-spark-wrap">' +
+          '<span class="nw-spark-cap">近 6 个月净资产</span>' +
+          '<svg class="nw-spark" viewBox="0 0 346 40" preserveAspectRatio="none" aria-hidden="true">' +
+            '<defs><linearGradient id="nwGrad2" x1="0" y1="0" x2="0" y2="1">' +
+              '<stop offset="0%" stop-color="#0e0e10" stop-opacity="0.2"/>' +
+              '<stop offset="100%" stop-color="#0e0e10" stop-opacity="0"/>' +
+            "</linearGradient></defs>" +
+            '<polygon points="' + areaPts + '" fill="url(#nwGrad2)"/>' +
+            '<polyline points="' + pts + '"' + (trendUp ? "" : ' style="stroke:var(--neg)"') + "/>" +
+            '<circle cx="' + VBW + '" cy="' + sparkY(nwSeries[nwSeries.length - 1]) + '" r="3.4" fill="var(--ink)"/>' +
+          "</svg>" +
         "</div>" +
-        '<div class="alloc-key">' +
-          positive.filter(function (x) { return x.v / total >= 0.04; }).map(function (x, i) {
-            return '<span><i style="background:' + BARS[i % BARS.length] + '"></i>' +
-              esc(x.w.name) + " " + Math.round((x.v / total) * 100) + "%</span>";
-          }).join("") +
-        "</div></div>"
-      : "";
+      "</div>";
+
+    var investPct = netWorth > 0 ? (hs.mv / netWorth) * 100 : 0;
+    var stack =
+      '<div class="stk stk-cash">' +
+        '<span class="stk-label">流动资产</span>' +
+        '<span class="stk-num">' + money(cashTotal) + "</span>" +
+      "</div>" +
+      '<div class="stk stk-invest">' +
+        '<span class="stk-label">投资资产</span>' +
+        '<div class="stk-big">' + money(hs.mv) + "</div>" +
+        '<div class="stk-foot">' +
+          "<span>浮动盈亏 " + (hs.pnl >= 0 ? "+" : "−") + "¥" + money(Math.abs(hs.pnl)) + "</span>" +
+          '<span class="stk-pct">' + investPct.toFixed(0) + "%</span>" +
+        "</div>" +
+      "</div>";
+
+    var anyNeg = false;
+    /* 账户做成可横滑的卡片：像一叠银行卡，滑动看下一张。
+       点进去是这一张卡的全部流水。 */
+    var rows = '<div class="wcards">' + db.wallets.map(function (w) {
+      var v = bal[w.id] || 0;
+      if (v < 0) anyNeg = true;
+      var c = tagColor(w) || "#4a4a54";
+      return '<div class="wcard" data-act="goWallet" data-id="' + esc(w.id) + '"' +
+          ' style="background:linear-gradient(150deg,' + c + ' 0%,' + c + 'cc 100%)">' +
+        '<div class="wc-top"><span class="wc-name">' + esc(w.name) + "</span>" +
+          '<span class="wc-ico">' + iconOf(w.id, iconOf("w_cash")) + "</span></div>" +
+        '<div class="wc-bal">' + cash(v) + "</div>" +
+        '<div class="wc-foot"><span>期初 ' + cash(w.opening) + "</span><span>流水 ›</span></div>" +
+      "</div>";
+    }).join("") + "</div>";
+
+    var yf = yearFlow(parts[0]);
+    var cover = yf.out > 0 ? Math.round((yf.div / yf.out) * 100) : 0;
 
     return (
-      '<div class="topbar"><div><h1>资产</h1><div class="sub">账户与余额</div></div></div>' +
-      '<div class="hero"><div class="label">账户合计</div>' +
-        '<div class="big"><span class="cur">¥</span>' + money(total) + "</div>" +
-        '<div class="row"><div class="cell"><i>账户数</i><b>' + db.wallets.length + "</b></div>" +
-        '<div class="cell"><i>本月支出</i><b>¥' + money(summarize(ui.month).out) + "</b></div></div>" +
+      '<div class="topbar"><div><h1>资产</h1><div class="sub">钱在哪，花到哪</div></div></div>' +
+      nav +
+      hero +
+      stack +
+      '<div class="as-sec">' +
+        statsBlock() +
       "</div>" +
-      allocBar +
-      (function () {
-        // 持仓 + 全景入口：只算一次，避免重复遍历
-        var hs = holdingStats();
-        var yf = yearFlow(ui.month.slice(0, 4));
-        var cover = yf.out > 0 ? Math.round((yf.div / yf.out) * 100) : 0;
-        return '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
-          '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
-            '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
-          '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
-            '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
-        "</div>";
-      })() +
-      '<div class="card ov-card"><div class="card-title">明细</div>' + rows + "</div>" +
-      '<div class="card ov-card"><div class="card-title">说明</div>' +
-        '<div class="list-row"><span>余额口径</span><span class="hint">期初 + 收入 − 支出</span></div>' +
-        '<div class="list-row"><span>转账</span><span class="hint">只做账户间搬移，不计收支</span></div>' +
+      '<div class="card ov-card"><div class="card-title">账户</div>' + rows +
+        (anyNeg
+          ? '<div class="wal-tip">余额是负的？说明这个账户只记了支出没记期初——' +
+            '<span data-act="goWallets">去账户里设一下期初 ›</span></div>'
+          : "") +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
+        '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
+          '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
+        '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
+          '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">口径</div>' +
+        '<div class="list-row"><span>余额</span><span class="hint">期初 + 收入 − 支出</span></div>' +
+        '<div class="list-row"><span>转账</span><span class="hint">账户间搬移，不计收支</span></div>' +
+        '<div class="list-row"><span>净资产</span><span class="hint">账户余额 + 持仓市值</span></div>' +
       "</div>"
     );
+  }
+
+  /* ================= 视图：单个账户 ================= */
+
+  /* 点账户卡片进来：这张卡的钱从哪儿来、花到哪儿去。
+     只列这个账户的流水，不做二级筛选，越简单越好。 */
+  function viewWalletDetail(params) {
+    var id = (params && params.id) || "";
+    var w = walletById(id);
+    if (!w) {
+      return '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>账户</h1>' +
+        '<div class="icon-btn"></div></div>' +
+        '<div class="empty">这个账户不在了，可能被删了</div>';
+    }
+    var bal = walletBalances();
+    var v = bal[w.id] || 0;
+    var list = db.entries
+      .filter(function (e) { return e.walletId === w.id || e.toWalletId === w.id; })
+      .sort(function (a, b) {
+        if (a.day !== b.day) return a.day < b.day ? 1 : -1;
+        return (b.at || 0) - (a.at || 0);
+      });
+
+    // 本月这个账户的进出
+    var monthOut = 0, monthIn = 0;
+    list.forEach(function (e) {
+      if (String(e.day).slice(0, 7) !== ui.month) return;
+      if (e.flow === "out" && e.walletId === w.id) monthOut += e.cents;
+      if (e.flow === "in" && e.walletId === w.id) monthIn += e.cents;
+    });
+
+    var c = tagColor(w) || "#4a4a54";
+    var head =
+      '<div class="wd-hero" style="background:linear-gradient(150deg,' + c + ' 0%,' + c + 'cc 100%)">' +
+        '<div class="wd-name"><span class="wc-ico">' + iconOf(w.id, iconOf("w_cash")) + "</span>" +
+          esc(w.name) + "</div>" +
+        '<div class="wd-bal">' + cash(v) + "</div>" +
+        '<div class="wd-meta">' +
+          "<span>本月支出 ¥" + money(monthOut) + "</span>" +
+          "<span>本月收入 ¥" + money(monthIn) + "</span>" +
+        "</div>" +
+      "</div>";
+
+    var body;
+    if (!list.length) {
+      body = '<div class="empty"><span class="big-emoji">🧾</span>这个账户还没有流水</div>';
+    } else {
+      body = list.slice(0, 200).map(function (e) {
+        var t = tagById(e.tagId);
+        var isTransferOut = e.flow === "move" && e.walletId === w.id;
+        var isTransferIn = e.flow === "move" && e.toWalletId === w.id;
+        var sign = e.flow === "in" || isTransferIn ? "+" : e.flow === "move" ? "" : "−";
+        var cls = e.flow === "in" || isTransferIn ? " in" : e.flow === "move" ? "" : " out";
+        var title = isTransferOut ? ("转到 " + (walletById(e.toWalletId).name || "其他账户"))
+          : isTransferIn ? ("来自 " + (walletById(e.walletId).name || "其他账户"))
+          : t.name;
+        return '<div class="wd-row" data-act="openEntry" data-id="' + esc(e.id) + '">' +
+          '<div class="g"' + gStyle(isTransferIn ? walletById(e.walletId) : t, false) + ">" +
+            tagIcon(isTransferIn ? t : t) + "</div>" +
+          '<div class="body">' +
+            '<div class="r1"><span class="nm">' + esc(title) + "</span>" +
+              '<span class="amt' + cls + '">' + sign + "¥" + money(e.cents) + "</span></div>" +
+            '<div class="r2"><span>' + esc(e.day) + "</span>" +
+              (e.memo ? "<span>" + esc(e.memo) + "</span>" : "") + "</div>" +
+          "</div>" +
+        "</div>";
+      }).join("");
+    }
+
+    return '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>账户</h1>' +
+        '<div class="icon-btn"></div></div>' +
+      head + body;
   }
 
   /* ================= 视图：持仓 ================= */
@@ -1867,32 +2071,83 @@
     return Math.floor(diff / 2592000000) + " 个月前";
   }
 
-  function loadDecideFeed(append) {
+  /* 决策广场的打开速度全靠这一步：
+     上次的结果存在本地，进页面先铺上去（0ms 出内容），
+     再在后台拉新的替换。用户看到的是「立刻有内容 + 悄悄更新」，
+     而不是「白屏转圈 600ms」。 */
+  var DC_CACHE_KEY = "sz.decide.cache.v1";
+
+  function dcCacheKey() {
+    // 换账号就不能复用别人的缓存
+    var who = (auth && auth.userId) || 0;
+    return DC_CACHE_KEY + "." + who + "." + decideState().scope + "." + decideState().sort;
+  }
+
+  function readDecideCache() {
+    try {
+      var o = JSON.parse(localStorage.getItem(dcCacheKey()) || "null");
+      if (o && Array.isArray(o.items) && o.items.length) return o;
+    } catch (e) {}
+    return null;
+  }
+
+  function writeDecideCache(items, hasMore) {
+    try {
+      localStorage.setItem(dcCacheKey(), JSON.stringify({
+        at: Date.now(), items: items.slice(0, 20), hasMore: !!hasMore
+      }));
+    } catch (e) { /* 存不下不影响使用，下次再写 */ }
+  }
+
+  function loadDecideFeed(append, silent) {
     var d = decideState();
     if (!auth || d.loading) return;
+
+    // 先把上次缓存的铺上，用户立刻有东西看
+    if (!append && !d.items.length) {
+      var cached = readDecideCache();
+      if (cached) {
+        d.items = cached.items;
+        d.hasMore = cached.hasMore;
+        d.loaded = true;
+        if (!silent) render();
+      }
+    }
+
     d.loading = true;
     d.error = "";
-    render();
+    if (!silent) render();
     var off = append ? d.items.length : 0;
+
     // 战绩顺带拉一次，失败不影响列表
     apiFetch("/decisions/me/stats", {}).then(function (r) {
-      if (r.ok && r.body) { d.stats = r.body; render(); }
+      if (r.ok && r.body) {
+        d.stats = r.body;
+        if (!silent) render();
+      }
     }).catch(function () {});
+
     apiFetch("/decisions?sort=" + d.sort + "&scope=" + d.scope + "&offset=" + off + "&limit=20", {})
       .then(function (r) {
         d.loading = false;
         if (r.status === 401) { handleAuthExpired(); return; }
-        if (!r.ok) { d.error = (r.body && r.body.detail) || "加载失败"; render(); return; }
+        if (!r.ok) {
+          // 有缓存就别用错误盖掉已有内容
+          if (!d.items.length) d.error = (r.body && r.body.detail) || "加载失败";
+          if (!silent) render();
+          return;
+        }
         var items = (r.body && r.body.items) || [];
         d.items = append ? d.items.concat(items) : items;
         d.hasMore = !!(r.body && r.body.hasMore);
         d.loaded = true;
-        render();
+        if (!append) writeDecideCache(d.items, d.hasMore);
+        if (!silent) render();
       })
       .catch(function () {
         d.loading = false;
-        d.error = "网络不通，检查一下连接";
-        render();
+        if (!d.items.length) d.error = "网络不通，检查一下连接";
+        if (!silent) render();
       });
   }
 
@@ -2106,6 +2361,52 @@
     d.hasMore = false;
     d.error = "";
     loadDecideFeed(false);
+  }
+
+  /* ================= 视图：登录（未登录时唯一的页面） ================= */
+
+  /* 学钱往：不登录进不来。但记账这件事本身要能离线做——
+     所以是「首次必须登录」，登录后 token 长期留着，
+     断网照样记，联网自动同步。不是每次打开都验一遍账号。 */
+  function viewAuth() {
+    var isReg = ui.authPanel === "register";
+    var busy = !!ui.syncing;
+    return '<div class="auth-page">' +
+      '<div class="auth-brand">' +
+        '<div class="auth-mark">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<rect x="4.5" y="3.5" width="15" height="17" rx="3.2" fill="#ffffff"/>' +
+            '<path d="M8.2 8.6h7.6M8.2 12h7.6M8.2 15.4h4.6" stroke="#0e0e10" ' +
+              'stroke-width="1.7" stroke-linecap="round" fill="none"/>' +
+          "</svg>" +
+        "</div>" +
+        "<h1>随手账</h1>" +
+        '<p>' + (isReg ? "建个账号，账本跟着你走" : "每一笔都算数") + "</p>" +
+      "</div>" +
+
+      '<div class="auth-card">' +
+        '<div class="auth-field">' +
+          "<label>用户名</label>" +
+          '<input data-act="authUser" autocomplete="username" placeholder="3–20 位字母或数字" value="' + esc(ui.authUser) + '">' +
+        "</div>" +
+        '<div class="auth-field">' +
+          "<label>密码</label>" +
+          '<input data-act="authPwd" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") +
+            '" placeholder="' + (isReg ? "至少 6 位" : "输入密码") + '" value="' + esc(ui.authPwd) + '">' +
+        "</div>" +
+        '<button class="auth-submit" data-act="doAuth"' + (busy ? " disabled" : "") + ">" +
+          (busy ? "处理中…" : (isReg ? "注册并登录" : "登录")) +
+        "</button>" +
+      "</div>" +
+
+      '<div class="auth-switch" data-act="switchAuth">' +
+        (isReg ? "已有账号？去登录" : "还没有账号？立即注册") +
+      "</div>" +
+
+      '<div class="auth-note">' +
+        "账本加密后才上传，服务端也解不开<br>换手机登录同一个账号，数据自动回来" +
+      "</div>" +
+    "</div>";
   }
 
   /* ================= 视图：设置 ================= */
@@ -2430,9 +2731,8 @@
 
   var TABS = [
     { href: "#/book", key: "book", ic: "nav_book", name: "账本" },
-    { href: "#/stats", key: "stats", ic: "nav_stats", name: "统计" },
+    { href: "#/assets", key: "assets", ic: "nav_stats", name: "统计" },
     { href: "#/decide", key: "decide", ic: "nav_decide", name: "决策" },
-    { href: "#/assets", key: "assets", ic: "nav_assets", name: "资产" },
     { href: "#/config", key: "config", ic: "nav_config", name: "设置" }
   ];
 
@@ -2451,16 +2751,57 @@
     return { view: seg[0] || "book", params: params };
   }
 
+  /* 二级页的上一级：返回按钮回到自己所属的那一页，
+     别不管从哪儿来都甩回账本——从资产点进持仓，退回资产才是对的。 */
+  var VIEW_PARENT = {
+    overview: "assets",
+    holdings: "assets",
+    wallet: "assets",
+    wallets: "config",
+    tags: "config",
+    auto: "book",
+    search: "book"
+  };
+
+  function goBack() {
+    var v = parseHash().view;
+    if (v === "entry") {
+      resetEntryForm();
+      location.hash = "#/" + (VIEW_PARENT.entry || "book");
+      return;
+    }
+    location.hash = "#/" + (VIEW_PARENT[v] || "book");
+  }
+
   /* 上一次渲染的路由标识，用来判断是「换页」还是「同页重绘」 */
   var lastRoute = "";
 
   function render() {
-    var r = parseHash();    var app = document.getElementById("app");
+    var r = parseHash();
+    var app = document.getElementById("app");
+
+    /* 没登录就只有登录页：不渲染任何 tab、任何账本内容。
+       数据本来就在本机 localStorage 里，不登录也没有"泄露"问题，
+       但产品上要像钱往那样——账号是入口。 */
+    if (!auth) {
+      var showEnter = lastRoute !== "auth";
+      lastRoute = "auth";
+      app.className = "phone auth-mode";
+      app.innerHTML = '<div class="view' + (showEnter ? " enter" : "") + '">' + viewAuth() + "</div>";
+      if (showEnter) {
+        var av = app.querySelector(".view");
+        if (av) setTimeout(function () { av.classList.remove("enter"); }, 300);
+      }
+      return;
+    }
+    if (lastRoute === "auth") lastRoute = "";
+
     var body;
     if (r.view === "entry") body = viewEntry(r.params);
-    else if (r.view === "stats") body = viewStats();
+    else if (r.view === "stats") body = viewAssets();
     else if (r.view === "assets") body = viewAssets();
     else if (r.view === "holdings") body = viewHoldings();
+    else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
     else if (r.view === "wallets") body = viewWallets();
     else if (r.view === "tags") body = viewTags();
@@ -2472,7 +2813,9 @@
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
-    var activeKey = (r.view === "holdings" || r.view === "overview") ? "assets"
+    // 老链接 #/stats 也高亮「统计」所在的资产页
+    var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
+      : (r.view === "holdings" || r.view === "overview") ? "assets"
       : (r.view === "wallets" || r.view === "tags") ? "config"
       : r.view === "search" ? "book"
       : r.view;
@@ -2507,6 +2850,16 @@
     if (r.view === "config") pullMergeIfNeeded();
     // 进持仓页顺手把股票索引拉到本地，等用户点搜索时就是 0 延迟
     if (r.view === "holdings") ensureStockIdx();
+    /* 决策广场也要预取：在账本/资产页停留一秒后悄悄拉一次，
+       等用户点「决策」时内容已经在内存里，不用等网络。 */
+    if (auth && (r.view === "book" || r.view === "assets") && !decideState().loaded) {
+      clearTimeout(window._dcPre);
+      window._dcPre = setTimeout(function () {
+        if (auth && !decideState().loading && !decideState().loaded) {
+          loadDecideFeed(false, true);
+        }
+      }, 1000);
+    }
   }
 
   /* ================= 交互 ================= */
@@ -3437,7 +3790,7 @@
     else if (act === "dayOffset") setDayOffset(Number(v) || 1);
     else if (act === "delEntry") deleteEntry(id);
     else if (act === "editEntry") { ui._loaded = false; location.hash = "#/entry?id=" + encodeURIComponent(id); }
-    else if (act === "back") { resetEntryForm(); location.hash = "#/book"; }
+    else if (act === "back") { goBack(); }
     else if (act === "statsFlow") { ui.statsFlow = v; render(); }
     else if (act === "dcOpenForm") { var ds = decideState(); ds.panel = "post"; render(); }
     else if (act === "dcCloseForm") { decideState().panel = null; render(); }
@@ -3454,6 +3807,7 @@
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
     else if (act === "goHoldings") { location.hash = "#/holdings"; }
+    else if (act === "goWallet") { location.hash = "#/wallet?id=" + encodeURIComponent(id); }
     else if (act === "gotoMonth") { if (v) { ui.month = v; render(); } }
     else if (act === "goOverview") { location.hash = "#/overview"; }
     else if (act === "addHolding") addHolding();
