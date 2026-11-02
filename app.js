@@ -161,7 +161,7 @@
   }
 
   var auth = loadAuth();
-  var _szKey = null, _szKeyCode = "";
+  var _szKey = null;
 
   function apiFetch(path, opts) {
     opts = opts || {};
@@ -177,16 +177,19 @@
     });
   }
 
-  /* PBKDF2 20 万次派生在手机上要几百毫秒，派生一次就缓存住，
-     否则每次自动同步都要卡一下 */
+  /* 登录时派生一次、导出成 raw 存本地，之后自动同步直接复用：
+     既不用每次输密码，也不用每次重算 20 万轮 PBKDF2 */
+  var KEY_STORE = "sz.syncKey.v1";
+  function saveKeyRaw(b64) { try { localStorage.setItem(KEY_STORE, b64); } catch (e) {} }
+  function clearKeyRaw() { try { localStorage.removeItem(KEY_STORE); } catch (e) {} }
+
   function syncKey() {
-    if (!auth || !auth.syncCode) return Promise.reject(new Error("还没开启同步"));
     if (!window.SZSync) return Promise.reject(new Error("加密模块未加载"));
-    if (_szKey && _szKeyCode === auth.syncCode) return Promise.resolve(_szKey);
-    return window.SZSync.deriveKey(auth.syncCode).then(function (k) {
-      _szKey = k; _szKeyCode = auth.syncCode;
-      return k;
-    });
+    if (_szKey) return Promise.resolve(_szKey);
+    var raw = "";
+    try { raw = localStorage.getItem(KEY_STORE) || ""; } catch (e) { raw = ""; }
+    if (!raw) return Promise.reject(new Error("登录已过期，请重新登录"));
+    return window.SZSync.importKeyRaw(raw).then(function (k) { _szKey = k; return k; });
   }
 
   function syncPush(force) {
@@ -213,7 +216,7 @@
       auth.lastSyncAt = Date.now();
       saveAuth();
       // 推完要把「上次同步 / v几」刷出来，否则界面永远停在 v0
-      if (parseHash().view === "config" && ui.syncPanel !== "bind") render();
+      if (parseHash().view === "config" && !ui.authPanel) render();
       return { ok: true, revision: auth.revision };
     }).catch(function (e) {
       ui.syncing = false;
@@ -245,70 +248,53 @@
     }, SYNC_DEBOUNCE);
   }
 
-  function enableSync() {
+  /* 注册 / 登录：拿到 token 后，用「用户名 + 密码」派生加密密钥并存到本地 */
+  function doAuth(mode) {
+    var u = String(ui.authUser || "").trim();
+    var p = String(ui.authPwd || "");
+    if (!u) { toast("填个用户名"); return; }
+    if (!p) { toast("填个密码"); return; }
+    if (mode === "register" && p.length < 6) { toast("密码至少 6 位"); return; }
     if (ui.syncing) return;
     ui.syncing = true;
-    apiFetch("/auth/anon", { method: "POST" }).then(function (res) {
-      ui.syncing = false;
-      if (!res.ok) throw new Error("HTTP " + res.status);
+    apiFetch(mode === "register" ? "/auth/register" : "/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username: u, password: p })
+    }).then(function (res) {
+      if (!res.ok) throw new Error((res.body && res.body.detail) || ("HTTP " + res.status));
       auth = {
-        token: res.body.token, syncCode: res.body.syncCode,
-        userId: res.body.userId, revision: 0, lastSyncAt: 0
+        token: res.body.token, userId: res.body.userId,
+        username: res.body.username, revision: 0, lastSyncAt: 0
       };
       saveAuth();
-      toast("云同步已开启");
+      return window.SZSync.deriveKeyFromPassword(p, auth.username).then(function (key) {
+        _szKey = key;
+        return window.SZSync.exportKeyRaw(key);
+      });
+    }).then(function (raw) {
+      saveKeyRaw(raw);
+      ui.syncing = false;
+      ui.authUser = ""; ui.authPwd = ""; ui.authPanel = "";
+      toast(mode === "register" ? "注册成功" : "登录成功");
       render();
-      return syncPush(true).catch(function () {});
+      return afterAuthPull();
     }).catch(function (e) {
       ui.syncing = false;
-      toast("开启失败：" + (e.message || "网络不通"), null, null, 2600);
+      toast(e.message || "网络不通", null, null, 2600);
       render();
     });
   }
 
-  function disableSync() {
-    if (!confirm("关闭云同步？\n\n本机数据不受影响，但服务端已上传的备份会删除。\n同步码将立即失效。")) return;
-    apiFetch("/auth/account", { method: "DELETE" }).then(function () {
-      auth = null; _szKey = null; _szKeyCode = "";
-      saveAuth();
-      toast("已关闭云同步");
-      render();
-    }).catch(function () {
-      toast("关闭失败，稍后再试", null, null, 2400);
-    });
-  }
-
-  function bindDevice() {
-    var raw = String(ui.syncCodeInput || "").trim();
-    if (!raw) { toast("先输入同步码"); return; }
-    var code;
-    try { code = window.SZSync.normalizeCode(raw); }
-    catch (e) { toast("同步码格式不对", null, null, 2400); return; }
-    if (ui.syncing) return;
-    ui.syncing = true;
-    apiFetch("/auth/bind", { method: "POST", body: JSON.stringify({ syncCode: code }) }).then(function (res) {
-      if (res.status === 404) throw new Error("同步码无效");
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      auth = { token: res.body.token, syncCode: code, userId: res.body.userId, revision: 0, lastSyncAt: 0 };
-      _szKey = null; _szKeyCode = "";
-      saveAuth();
-      return syncPull();
-    }).then(function (pulled) {
-      ui.syncing = false;
-      if (pulled && pulled.empty) {
-        toast("这台设备已接管，云端还没有数据");
-        ui.syncPanel = "";
-        ui.syncCodeInput = "";
-        render();
-        return;
-      }
-      if (!pulled || !pulled.data || !Array.isArray(pulled.data.entries)) {
-        throw new Error("云端数据无法识别");
-      }
-      if (!confirm("接管成功。\n\n云端有 " + pulled.data.entries.length + " 条记录，将覆盖本机当前数据，继续？")) {
-        ui.syncPanel = ""; ui.syncCodeInput = "";
-        render();
-        return;
+  /* 登录成功后拉一次云端：有数据就问要不要覆盖本机 */
+  function afterAuthPull() {
+    return syncPull().then(function (pulled) {
+      if (!pulled || pulled.empty) return null;
+      if (!pulled.data || !Array.isArray(pulled.data.entries)) return null;
+      var n = pulled.data.entries.length;
+      if (!confirm("云端有 " + n + " 条记录。\n\n覆盖本机当前数据？\n\n选「取消」= 保留本机，并把本机数据推到云端。")) {
+        auth.revision = pulled.revision;
+        saveAuth();
+        return syncPush(true).catch(function () {});
       }
       // 覆盖期间屏蔽自动推送，否则会把刚拉下来的又推回去
       ui.applyingRemote = true;
@@ -323,13 +309,39 @@
       saveAuth();
       save();
       ui.applyingRemote = false;
-      ui.syncPanel = ""; ui.syncCodeInput = "";
       toast("已恢复 " + db.entries.length + " 条记录");
       render();
+      return null;
     }).catch(function (e) {
-      ui.syncing = false;
-      toast("接管失败：" + (e.message || "网络不通"), null, null, 2600);
+      toast("云端数据拉取失败：" + (e.message || ""), null, null, 2400);
+    });
+  }
+
+  function logoutAccount() {
+    if (!confirm("退出登录？\n\n本机数据保留，重新登录后可以继续同步。")) return;
+    apiFetch("/auth/logout", { method: "POST" }).catch(function () {}).then(function () {
+      auth = null;
+      _szKey = null;
+      saveAuth();
+      clearKeyRaw();
+      toast("已退出登录");
       render();
+    });
+  }
+
+  function deleteAccount() {
+    if (!confirm("注销账号？\n\n云端数据和账号会被永久删除，无法恢复。\n本机记账数据保留。")) return;
+    if (!confirm("再确认一次：这个操作不可撤销，确定注销？")) return;
+    apiFetch("/auth/account", { method: "DELETE" }).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      auth = null;
+      _szKey = null;
+      saveAuth();
+      clearKeyRaw();
+      toast("账号已注销");
+      render();
+    }).catch(function (e) {
+      toast("注销失败：" + (e.message || ""), null, null, 2400);
     });
   }
 
@@ -524,11 +536,12 @@
     tagIcon: "",
     /* 搜索关键词（跨全部月份） */
     searchQ: "",
-    /* 云同步界面状态 */
+    /* 账号 / 云同步界面状态 */
     syncing: false,
     applyingRemote: false,
-    syncPanel: "",
-    syncCodeInput: ""
+    authPanel: "",
+    authUser: "",
+    authPwd: ""
   };
 
   function viewBook() {
@@ -1313,29 +1326,38 @@
       return Math.floor(diff / 86400000) + " 天前";
     }
     function syncCard() {
+      var title = '<div class="card-title">账号</div>';
+
+      // 未登录：显示登录 / 注册入口
       if (!auth) {
-        return '<div class="card"><div class="card-title">账号 · 云同步</div>' +
-          '<div class="list-row" data-act="enableSync"><span>开启云同步</span><span class="hint">当前数据只在本机 ›</span></div>' +
+        if (ui.authPanel === "login" || ui.authPanel === "register") {
+          var isReg = ui.authPanel === "register";
+          return '<div class="card">' + title +
+            '<div class="field-row"><label>用户名</label>' +
+              '<input data-act="authUser" autocomplete="username" placeholder="3–20 位字母数字" value="' + esc(ui.authUser) + '"></div>' +
+            '<div class="field-row"><label>密码</label>' +
+              '<input data-act="authPwd" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") + '" placeholder="' + (isReg ? "至少 6 位" : "输入密码") + '" value="' + esc(ui.authPwd) + '"></div>' +
+            '<button class="btn-primary" data-act="doAuth">' + (isReg ? "注册并登录" : "登录") + "</button>" +
+            '<div class="list-row" data-act="switchAuth"><span>' + (isReg ? "已有账号" : "还没有账号") + '</span><span class="hint">' + (isReg ? "去登录 ›" : "去注册 ›") + "</span></div>" +
           "</div>";
+        }
+        return '<div class="card">' + title +
+          '<div class="list-row" data-act="openAuth"><span>登录 / 注册</span><span class="hint">数据只在本机，登录后可跨设备同步 ›</span></div>' +
+        "</div>";
       }
-      var h = '<div class="card"><div class="card-title">账号 · 云同步</div>' +
+
+      // 已登录：显示账号 + 同步状态
+      var h = '<div class="card">' + title +
         '<div class="mrow">' +
           '<div class="body">' +
-            '<div class="nm">同步码</div>' +
-            '<div class="sub">别截图外传，它同时是解密钥匙</div>' +
+            '<div class="nm">' + esc(auth.username) + "</div>" +
+            '<div class="sub">已登录 · 数据加密后同步到云端</div>' +
           "</div>" +
-          '<span class="mrow-act" data-act="copySyncCode">复制</span>' +
+          '<span class="mrow-act" data-act="logoutAccount">退出</span>' +
         "</div>" +
-        '<div class="mx-code">' + esc(auth.syncCode) + "</div>" +
         '<div class="list-row"><span>上次同步</span><span class="hint">' + syncAgo(auth.lastSyncAt) + " · v" + (auth.revision || 0) + "</span></div>" +
         '<div class="list-row" data-act="syncNow"><span>立即同步</span><span class="hint">›</span></div>' +
-        '<div class="list-row" data-act="goBind"><span>在新设备接管</span><span class="hint">输入同步码 ›</span></div>' +
-        '<div class="list-row" data-act="disableSync"><span>关闭云同步</span><span class="hint">删除云端备份</span></div>';
-      if (ui.syncPanel === "bind") {
-        h += '<div class="field-row"><label>同步码</label>' +
-          '<input data-act="syncCodeInput" placeholder="XXXX-XXXX-XXXX" value="' + esc(ui.syncCodeInput) + '"></div>' +
-          '<button class="btn-primary" data-act="doBind">接管这台设备</button>';
-      }
+        '<div class="list-row" data-act="deleteAccount"><span>注销账号</span><span class="hint">清空云端数据并删除账号</span></div>';
       return h + "</div>";
     }
     return (
@@ -2414,18 +2436,16 @@
     else if (act === "cancelTag") { ui.editTagId = ""; ui.tagName = ""; ui.tagIcon = ""; render(); }
     else if (act === "pickTagIcon") { ui.tagIcon = v; render(); }
     else if (act === "setTagFlow") { ui.tagFlow = v; render(); }
-    else if (act === "enableSync") enableSync();
-    else if (act === "copySyncCode") {
-      if (auth && auth.syncCode && navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(auth.syncCode).then(function () { toast("已复制"); }, function () { toast("复制不了，长按手动选"); });
-      } else {
-        toast("复制不了，长按手动选");
-      }
+    else if (act === "openAuth") { ui.authPanel = "login"; ui.authUser = ""; ui.authPwd = ""; render(); }
+    else if (act === "switchAuth") {
+      ui.authPanel = ui.authPanel === "register" ? "login" : "register";
+      ui.authPwd = "";
+      render();
     }
+    else if (act === "doAuth") doAuth(ui.authPanel === "register" ? "register" : "login");
+    else if (act === "logoutAccount") logoutAccount();
+    else if (act === "deleteAccount") deleteAccount();
     else if (act === "syncNow") syncNow();
-    else if (act === "goBind") { ui.syncPanel = ui.syncPanel === "bind" ? "" : "bind"; render(); }
-    else if (act === "doBind") bindDevice();
-    else if (act === "disableSync") disableSync();
   });
 
   document.addEventListener("input", function (ev) {
@@ -2441,7 +2461,8 @@
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
     else if (act === "searchQ") { ui.searchQ = el.value; paintSearch(); }
-    else if (act === "syncCodeInput") ui.syncCodeInput = el.value;
+    else if (act === "authUser") ui.authUser = el.value;
+    else if (act === "authPwd") ui.authPwd = el.value;
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
