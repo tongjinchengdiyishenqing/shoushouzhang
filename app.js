@@ -436,6 +436,7 @@
     toast("正在同步…");
     // 必须先拉下来合并再推：只推不拉会把别的设备刚记的覆盖掉
     syncPull().then(function (pulled) {
+      if (pulled && pulled.authExpired) return { authExpired: true };
       if (pulled && pulled.data && Array.isArray(pulled.data.entries)) {
         db = mergeDb(db, pulled.data);
         auth.revision = pulled.revision;
@@ -443,6 +444,9 @@
       }
       return syncPush(true);
     }).then(function (r) {
+      // 401 已经由 handleAuthExpired 提示过，这里绝不能再报「已同步」
+      if (r && r.authExpired) return;
+      if (r && r.skipped) return;
       if (r && r.conflict) {
         // 极少见（两端几乎同时改）：已经自动合并过一轮，再点一次即可收敛
         toast("另一端也在改，已合并，请再点一次", null, null, 2600);
