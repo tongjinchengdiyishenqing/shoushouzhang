@@ -2769,3 +2769,12 @@ html, body {
 .sd-sync-btns { display: flex; gap: 8px; margin-top: 10px; }
 .sd-sync-btns .btn-primary { flex: 1; margin: 0; }
 .sd-sync-btns .btn-ghost { flex: none; margin: 0; }
+
+/* 自动记账的隐私提示：截图要发给第三方模型，写在按钮下面，不藏 */
+.au-privacy {
+  margin: 2px 18px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
