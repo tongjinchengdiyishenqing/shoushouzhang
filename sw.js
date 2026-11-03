@@ -7,7 +7,7 @@
 //     下次打开就是新的，既快又跟得上更新
 //   · 只处理同源 GET，不碰外部请求
 
-const CACHE_VERSION = 'suishouzhang-v39';
+const CACHE_VERSION = 'suishouzhang-v40';
 const CORE = [
   './',
   './index.html',
