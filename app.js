@@ -2256,6 +2256,8 @@
           if (r.status === 401) { handleAuthExpired(); return; }
           if (!r.ok) {
             var msg = (r.body && (r.body.error || r.body.detail)) || ("识别服务返回 " + r.status);
+            if (r.status === 429) msg = "识别太频繁了，等一分钟再试（每分钟 6 次）";
+            else if (r.status === 503 || r.status === 502) msg = "识别服务暂时不可用，可以手动记一笔";
             autoApplyShot({ ok: false, error: msg });
             return;
           }
@@ -2302,12 +2304,35 @@
     syncPush().catch(function () {});
   }
 
+  /* 同一张图连点两次「全部记下」，或者识别完手滑再点一次，
+     原来会老老实实记两遍 —— 记账 App 里重复流水比少记一笔更伤（对账永远差）。
+     判据：同一天 + 同方向 + 同金额 + 同商户，且已存在的是自动/分红来的流水。 */
+  function autoDupKey(it) {
+    return [it.day, it.flow, it.cents, String(it.merchant || "").trim()].join("|");
+  }
+
+  function autoExistingKeys() {
+    var keys = {};
+    (db.entries || []).forEach(function (e) {
+      if (e.origin !== "auto" && e.origin !== "dividend") return;
+      var memo = String(e.memo || "");
+      // 入账时 memo 写的是「商户 · 分类」这种形式，取商户那段做 key
+      var merchant = memo.split(" · ")[0].trim();
+      keys[[e.day, e.flow, e.cents, merchant].join("|")] = true;
+    });
+    return keys;
+  }
+
   function autoCommit() {
     var a = autoState();
     if (!a.items.length) { toast("还没有可记的"); return; }
     var fallbackWallet = db.wallets[0] ? db.wallets[0].id : "w_cash";
-    var n = 0;
+    var seen = autoExistingKeys();
+    var n = 0, dup = 0;
     a.items.forEach(function (it) {
+      var k = autoDupKey(it);
+      if (seen[k]) { dup++; return; }
+      seen[k] = true;
       db.entries.unshift({
         id: uid("e"),
         day: it.day,
@@ -2331,7 +2356,8 @@
     a.parsed = false;
     a.text = "";
     render();
-    toast("记下 " + n + " 笔");
+    toast(dup ? ("记下 " + n + " 笔，" + dup + " 笔重复已跳过") : ("记下 " + n + " 笔"),
+      null, null, dup ? 2600 : undefined);
     /* 同步失败不该盖住「记完了」这个反馈：本机已经存好，
        下一笔记账或进设置页会再推一次。这里吞掉异常是有意的。 */
     syncPush().catch(function () {});
@@ -2427,6 +2453,10 @@
       '<div class="au-btns au-btns-2">' +
         '<button class="au-btn" data-act="autoRun">识别上面的文字</button>' +
       "</div>" +
+      /* 截图这条路和"账本加密后才上传"是两件不同的事：
+         图片要发给第三方模型才认得出字，所以必须当面说清，不能藏在协议里。 */
+      '<div class="au-privacy">截图会发给第三方识别模型（只用于认出这一笔），原图不在本机留、也不存服务端；' +
+        "嫌麻烦可以直接手动记一笔。</div>" +
       remoteBlock +
       (a.loading ? '<div class="au-loading"><i></i>正在看这张图…</div>' : "") +
       result;
