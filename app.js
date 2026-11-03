@@ -165,6 +165,54 @@
   function dropOwner() {
     try { localStorage.removeItem(OWNER_KEY); } catch (e) {}
   }
+
+  /* 本机账本不属于当前账号时，先"挪到一边"再同步。
+     为什么不直接丢：那是用户真金白银记的账，一句提示就删掉是最不负责任的做法。
+     为什么不直接推：推上去就是"新账号凭空多出一堆旧数据"，另一台设备再一看就全乱了。
+     所以暂存：登录后云端说了算，本机这份等用户自己决定「并入 / 导出 / 丢弃」。 */
+  var ORPHAN_KEY = "sz.orphan.v1";
+
+  function readOrphan() {
+    try { return JSON.parse(localStorage.getItem(ORPHAN_KEY) || "null"); } catch (e) { return null; }
+  }
+  function parkLocalBook(reason) {
+    var n = (db.entries || []).length;
+    var h = (db.holdings || []).length;
+    if (!n && !h) { clearLocalBook(); return 0; }
+    try {
+      localStorage.setItem(ORPHAN_KEY, JSON.stringify({
+        at: Date.now(), owner: readOwner() || "", reason: reason || "",
+        entries: n, holdings: h, db: db
+      }));
+    } catch (e) {}
+    clearLocalBook();
+    return n;
+  }
+  function dropOrphan() {
+    try { localStorage.removeItem(ORPHAN_KEY); } catch (e) {}
+  }
+  function mergeOrphan() {
+    var o = readOrphan();
+    if (!o || !o.db) { toast("没有暂存的账本"); return; }
+    var before = db.entries.length;
+    db = mergeDb(db, o.db);
+    save();
+    dropOrphan();
+    render();
+    toast("已并入 " + (db.entries.length - before) + " 条");
+    syncPush().catch(function () {});
+  }
+  function exportOrphan() {
+    var o = readOrphan();
+    if (!o || !o.db) { toast("没有暂存的账本"); return; }
+    var blob = new Blob([JSON.stringify(o.db, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "随手账-暂存-" + ymd(new Date()) + ".json";
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    toast("已导出");
+  }
   /* 接口地址：默认官方后端；想接自建服务器或本地联调，
      把 localStorage['sz.apiBase.v1'] 设成自己的 /api/v1 地址就行 */
   var AUTH_API = (function () {
@@ -332,10 +380,18 @@
         token: res.body.token, userId: res.body.userId,
         username: res.body.username, revision: 0, lastSyncAt: 0
       };
-      // 本机留着别的账号的账本 → 先清掉，绝不能推给这个账号
+      /* 云端优先：本机账本必须"确认属于这个账号"才能参与同步。
+         owner 为空也不算自己人 —— 老版本客户端没写过 owner，
+         那批数据很可能来自一个已经注销的账号；一旦推上去，新账号就被灌满旧数据。
+         处理方式不是删，是暂存（见 parkLocalBook）。 */
       var prevOwner = readOwner();
-      if (prevOwner && String(prevOwner) !== String(auth.userId)) {
-        clearLocalBook();
+      var localCount = (db.entries || []).length + (db.holdings || []).length;
+      var foreign = String(prevOwner) !== String(auth.userId);
+      if (foreign && (prevOwner || localCount)) {
+        var parked = parkLocalBook("本机账本不属于 " + auth.username);
+        if (parked) {
+          toast("本机有 " + parked + " 条不属于这个账号的记录，已暂存（设置里可并入或导出）", null, null, 3600);
+        }
       }
       writeOwner(auth.userId);
       saveAuth();
@@ -3117,6 +3173,19 @@
         '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从表格导入 ›</span></div>' +
         '<div class="list-row" data-act="resetData"><span>清空重来</span><span class="hint">全部记录与账户重置 ›</span></div>' +
       "</div>" +
+      (function () {
+        var o = readOrphan();
+        if (!o) return "";
+        var when = new Date(o.at);
+        return '<div class="card ov-card"><div class="card-title">暂存的本机账本</div>' +
+          '<div class="list-row"><span>' + esc(String(o.entries || 0)) + " 条流水 · " + esc(String(o.holdings || 0)) + " 只持仓</span>" +
+            '<span class="hint">' + esc((when.getMonth() + 1) + "月" + when.getDate() + "日") + "暂存</span></div>" +
+          '<div class="list-row"><span>这是另一份账本</span><span class="hint">云端优先，不会自动上传</span></div>' +
+          '<div class="list-row" data-act="mergeOrphan"><span>并入当前账号</span><span class="hint">合并后一起备份 ›</span></div>' +
+          '<div class="list-row" data-act="exportOrphan"><span>导出成 JSON</span><span class="hint">先存下来再说 ›</span></div>' +
+          '<div class="list-row" data-act="dropOrphan"><span>丢弃</span><span class="hint">删掉这份暂存 ›</span></div>' +
+          "</div>";
+      })() +
       '<div class="card ov-card"><div class="card-title">关于</div>' +
         '<div class="list-row"><span>版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
         '<div class="list-row"><span>数据位置</span><span class="hint">本机 localStorage</span></div>' +
@@ -4536,6 +4605,13 @@
     else if (act === "deleteAccount") deleteAccount();
     else if (act === "syncNow") syncNow();
     else if (act === "forceUpdate") forceUpdate();
+    else if (act === "mergeOrphan") mergeOrphan();
+    else if (act === "exportOrphan") exportOrphan();
+    else if (act === "dropOrphan") {
+      if (confirm("丢弃暂存账本？\n\n这份数据会永久删除，建议先导出 JSON。")) {
+        dropOrphan(); render(); toast("已丢弃");
+      }
+    }
   });
 
   document.addEventListener("input", function (ev) {
