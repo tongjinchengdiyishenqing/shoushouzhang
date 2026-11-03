@@ -1,4 +1,4 @@
-/* 随手账 —— 应用脚本
+/* 长流 —— 应用脚本
  * 纯原生 JS，无框架、无依赖、无网络请求；数据全部落在 localStorage。
  * 路由：hash（#/book 账本、#/entry 记一笔、#/stats 统计、#/assets 资产、#/config 设置）
  */
@@ -208,7 +208,7 @@
     var blob = new Blob([JSON.stringify(o.db, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "随手账-暂存-" + ymd(new Date()) + ".json";
+    a.download = "长流-暂存-" + ymd(new Date()) + ".json";
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
     toast("已导出");
@@ -2885,7 +2885,8 @@
       "</div>" +
       (p.reason ? '<div class="dc-reason">' + esc(p.reason) + "</div>" : "") +
       verdict + bar + actions +
-      '<div class="dc-meta">' + esc(p.author) + " · " + agoText(p.createdAt) + "</div>" +
+      '<div class="dc-meta">' + avatarHTML(p.author, toneOf(p.author), "sm") +
+        "<span>" + esc(p.author) + " · " + agoText(p.createdAt) + "</span></div>" +
     "</div>";
   }
 
@@ -3118,8 +3119,9 @@
       "</div>" +
       (p.reason ? '<div class="dc-reason">' + esc(p.reason) + "</div>" : "") +
       verdict + dcVoteBar(p) + dcActionsFor(p) +
-      '<div class="dc-meta">' + esc(p.author) + " · " + agoText(p.createdAt) +
-        (p.category ? " · " + esc(p.category) : "") + "</div>" +
+      '<div class="dc-meta">' + avatarHTML(p.author, toneOf(p.author), "sm") +
+        "<span>" + esc(p.author) + " · " + agoText(p.createdAt) +
+        (p.category ? " · " + esc(p.category) : "") + "</span></div>" +
     "</div>";
 
     var cms = p.comments || [];
@@ -3168,14 +3170,8 @@
     var busy = !!ui.syncing;
     return '<div class="auth-page">' +
       '<div class="auth-brand">' +
-        '<div class="auth-mark">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-            '<rect x="4.5" y="3.5" width="15" height="17" rx="3.2" fill="#ffffff"/>' +
-            '<path d="M8.2 8.6h7.6M8.2 12h7.6M8.2 15.4h4.6" stroke="#0e0e10" ' +
-              'stroke-width="1.7" stroke-linecap="round" fill="none"/>' +
-          "</svg>" +
-        "</div>" +
-        "<h1>随手账</h1>" +
+        '<div class="auth-mark">' + '<svg viewBox="0 0 200 200" aria-hidden="true"><path fill="#EAF7FD" d="M101.4 21.0L100.1 22.5L98.9 23.9L97.8 25.4L96.8 27.0L95.8 28.6L94.8 30.2L94.0 31.8L93.1 33.5L92.4 35.2L91.7 36.9L91.0 38.6L90.5 40.4L89.9 42.1L89.4 43.9L89.0 45.7L88.6 47.5L88.3 49.3L88.0 51.1L87.7 53.0L87.5 54.8L87.3 56.6L87.2 58.5L87.1 60.3L87.0 62.2L86.9 64.0L86.9 65.8L86.8 67.7L86.8 69.5L86.8 71.3L86.8 73.2L86.9 75.0L86.9 76.8L86.9 78.6L87.0 80.4L87.0 82.2L87.0 84.0L87.1 85.8L87.1 87.6L87.1 89.4L87.1 91.1L87.1 92.9L87.1 94.6L87.1 96.3L87.1 98.0L87.0 99.7L86.9 101.4L86.8 103.1L86.7 104.7L86.6 106.4L86.4 108.0L86.2 109.6L86.0 111.1L85.8 112.7L85.5 114.2L85.2 115.8L84.9 117.2L84.5 118.7L84.1 120.2L83.7 121.6L83.3 123.0L82.8 124.4L82.3 125.8L81.8 127.2L81.2 128.6L80.6 129.9L79.9 131.2L79.3 132.6L78.6 133.9L77.8 135.2L77.0 136.5L76.2 137.8L75.3 139.1L124.7 160.9L125.6 158.0L126.4 155.2L127.1 152.4L127.7 149.6L128.2 146.8L128.7 144.1L129.1 141.4L129.4 138.7L129.6 136.0L129.7 133.4L129.8 130.8L129.8 128.3L129.8 125.8L129.7 123.3L129.5 120.9L129.3 118.5L129.1 116.1L128.7 113.8L128.4 111.5L128.0 109.2L127.6 107.0L127.2 104.8L126.7 102.7L126.2 100.6L125.6 98.5L125.1 96.5L124.5 94.5L123.9 92.6L123.3 90.6L122.7 88.7L122.1 86.9L121.5 85.0L120.9 83.2L120.2 81.4L119.6 79.7L119.0 78.0L118.3 76.3L117.7 74.6L117.1 72.9L116.5 71.3L115.9 69.7L115.3 68.2L114.7 66.6L114.2 65.1L113.6 63.6L113.1 62.1L112.6 60.6L112.1 59.2L111.7 57.7L111.2 56.3L110.8 54.9L110.4 53.6L110.1 52.2L109.7 50.9L109.4 49.5L109.2 48.2L108.9 46.9L108.7 45.6L108.6 44.3L108.4 43.0L108.3 41.7L108.3 40.4L108.3 39.1L108.3 37.8L108.4 36.5L108.5 35.2L108.7 33.8L109.0 32.5L109.3 31.1L109.7 29.8L110.1 28.4L110.6 27.0Z"/><path fill="none" stroke="#A8E0F7" stroke-width="16" stroke-linecap="round" d="M18 164q20-14 40 0t40 0t40 0t40 0"/></svg>' + "</div>" +
+        "<h1>长流</h1>" +
         '<p>' + (isReg ? "建个账号，账本跟着你走" : "每一笔都算数") + "</p>" +
       "</div>" +
 
@@ -3204,6 +3200,76 @@
     "</div>";
   }
 
+  /* ================= 个人资料（昵称 + 头像） ================= */
+
+  /* 头像不用上传照片：账本类应用要相册权限没有道理，也没有图片存储。
+     做法是「昵称首字 + 一组海天蓝渐变」，换底色就是另一个头像。
+     广场上别人只有打码名，所以在本机按名字算同一个色——不同人一眼能分开。 */
+  var PROFILE_KEY = "sz.profile.v1";
+  var AVATAR_TONES = [
+    ["#0E3550", "#2F8CB5"], ["#17557A", "#4FB3DE"], ["#123F5C", "#2E86AE"],
+    ["#155E75", "#22A6B3"], ["#1E7A58", "#5BC49A"], ["#2F7D6E", "#6FC2A8"],
+    ["#7A5C2E", "#C7912F"], ["#8A5A2B", "#D08A4A"], ["#5B4B8A", "#8E7BC4"],
+    ["#8A3B52", "#C4557A"], ["#334155", "#64748B"], ["#1F3A5F", "#4A7BB0"]
+  ];
+
+  function loadProfile() {
+    var p = null;
+    try { p = JSON.parse(localStorage.getItem(PROFILE_KEY) || "null"); } catch (e) { p = null; }
+    if (!p || typeof p !== "object") p = {};
+    var tone = Number(p.tone);
+    if (!isFinite(tone) || tone < 0 || tone >= AVATAR_TONES.length) tone = 0;
+    return { nick: typeof p.nick === "string" ? p.nick : "", tone: tone };
+  }
+
+  function saveProfile(p) {
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify({
+        nick: String((p && p.nick) || "").slice(0, 12),
+        tone: Number(p && p.tone) || 0
+      }));
+    } catch (e) { /* 存不下不影响记账 */ }
+  }
+
+  /* 显示名：自己设的昵称优先，没设就用登录账号名 */
+  function myName() {
+    var p = loadProfile();
+    if (p.nick) return p.nick;
+    if (auth && auth.username) return auth.username;
+    return "我";
+  }
+
+  function firstChar(str) {
+    var t = String(str || "").trim();
+    if (!t) return "我";
+    return t.slice(0, 1).toUpperCase();
+  }
+
+  function toneOf(str) {
+    var h = 0, t = String(str || "");
+    for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 9973;
+    return h % AVATAR_TONES.length;
+  }
+
+  function avatarHTML(name, tone, cls) {
+    var i = Number(tone);
+    if (!isFinite(i)) i = toneOf(name);
+    i = ((i % AVATAR_TONES.length) + AVATAR_TONES.length) % AVATAR_TONES.length;
+    var t = AVATAR_TONES[i];
+    return '<span class="avatar ' + (cls || "") + '" aria-hidden="true" style="background:linear-gradient(140deg,' +
+      t[0] + "," + t[1] + ')">' + esc(firstChar(name)) + "</span>";
+  }
+
+  /* 输昵称时只改预览，不整页重绘——整页重绘会把输入焦点丢掉 */
+  function paintProfilePreview() {
+    var nick = ui.pfNick === undefined ? loadProfile().nick : ui.pfNick;
+    var fallback = (auth && auth.username) || "我";
+    var av = document.querySelector(".pf-preview .avatar");
+    if (av) av.textContent = firstChar(String(nick || "").trim() || fallback);
+    var nm = document.querySelector(".pf-preview .pf-name");
+    if (nm) nm.textContent = String(nick || "").trim() || fallback;
+  }
+
   /* ================= 视图：设置 ================= */
 
   /* 微信里做不了强制刷新，页面被旧版 Service Worker 缓存锁住时用户只能干瞪眼。
@@ -3230,89 +3296,196 @@
     setTimeout(done, 1500);   // 兜底：清缓存卡住也要重载
   }
 
+  /* 设置改成两层：一层只放分组入口，点进去才是具体开关。
+     原来一屏堆了 18 行（账号、账户、分类、导出、恢复、CSV、清空、暂存、版本…），
+     手机上得滑三屏，常用的和一辈子点一次的挤在一起。 */
+  function sizeKB() {
+    var n = 0;
+    try { n = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) { n = 0; }
+    return (n / 1024).toFixed(1);
+  }
+
+  function syncAgo(ts) {
+    if (!ts) return "还没同步过";
+    var diff = Date.now() - ts;
+    if (diff < 60000) return "刚刚";
+    if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+    if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+    return Math.floor(diff / 86400000) + " 天前";
+  }
+
+  function setHead(title) {
+    return '<div class="topbar"><div class="icon-btn" data-act="setBack">‹</div>' +
+      "<h1>" + title + '</h1><div class="icon-btn"></div></div>';
+  }
+
   function viewConfig() {
-    var size = 0;
-    try { size = (localStorage.getItem(STORE_KEY) || "").length; } catch (e) { size = 0; }
+    var sub = parseHash().params.p || "";
+    if (sub === "profile") return viewProfile();
+    if (sub === "account") return viewSetAccount();
+    if (sub === "data") return viewSetData();
+    if (sub === "about") return viewSetAbout();
+    return viewSetHome();
+  }
 
-    function syncAgo(ts) {
-      if (!ts) return "还没同步过";
-      var diff = Date.now() - ts;
-      if (diff < 60000) return "刚刚";
-      if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
-      if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
-      return Math.floor(diff / 86400000) + " 天前";
-    }
-    function syncCard() {
-      var title = '<div class="card-title">账号</div>';
+  /* 一层：个人卡 + 四组入口 + 暂存账本 */
+  function viewSetHome() {
+    var pf = loadProfile();
+    var who = auth ? myName() : "还没登录";
+    var sub = auth
+      ? "@" + auth.username + " · 数据加密后才上云"
+      : "数据只在本机，登录后可跨设备同步";
 
-      // 未登录：显示登录 / 注册入口
-      if (!auth) {
-        if (ui.authPanel === "login" || ui.authPanel === "register") {
-          var isReg = ui.authPanel === "register";
-          return '<div class="card ov-card">' + title +
-            '<div class="field-row"><label>用户名</label>' +
-              '<input data-act="authUser" autocomplete="username" placeholder="3–20 位字母数字" value="' + esc(ui.authUser) + '"></div>' +
-            '<div class="field-row"><label>密码</label>' +
-              '<input data-act="authPwd" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") + '" placeholder="' + (isReg ? "至少 6 位" : "输入密码") + '" value="' + esc(ui.authPwd) + '"></div>' +
-            '<button class="btn-primary" data-act="doAuth">' + (isReg ? "注册并登录" : "登录") + "</button>" +
-            '<div class="list-row" data-act="switchAuth"><span>' + (isReg ? "已有账号" : "还没有账号") + '</span><span class="hint">' + (isReg ? "去登录 ›" : "去注册 ›") + "</span></div>" +
-          "</div>";
-        }
-        return '<div class="card ov-card">' + title +
-          '<div class="list-row" data-act="openAuth"><span>登录 / 注册</span><span class="hint">数据只在本机，登录后可跨设备同步 ›</span></div>' +
+    var stomp = (function () {
+      var o = readOrphan();
+      if (!o) return "";
+      var when = new Date(o.at);
+      return '<div class="card ov-card"><div class="card-title">暂存的本机账本</div>' +
+        '<div class="list-row"><span>' + esc(String(o.entries || 0)) + " 条流水 · " +
+          esc(String(o.holdings || 0)) + " 只持仓</span>" +
+          '<span class="hint">' + esc((when.getMonth() + 1) + "月" + when.getDate() + "日") + "暂存</span></div>" +
+        '<div class="list-row"><span>这是另一份账本</span><span class="hint">云端优先，不会自动上传</span></div>' +
+        '<div class="list-row" data-act="mergeOrphan"><span>并入当前账号</span><span class="hint">合并后一起备份 ›</span></div>' +
+        '<div class="list-row" data-act="exportOrphan"><span>导出成 JSON</span><span class="hint">先存下来再说 ›</span></div>' +
+        '<div class="list-row" data-act="dropOrphan"><span>丢弃</span><span class="hint">删掉这份暂存 ›</span></div>' +
+        "</div>";
+    })();
+
+    return '<div class="topbar"><div><h1>设置</h1><div class="sub">数据都在本机</div></div></div>' +
+      '<div class="card ov-card profile-card" data-act="setGo" data-p="profile">' +
+        avatarHTML(myName(), pf.tone, "lg") +
+        '<div class="body"><div class="nm">' + esc(who) + "</div>" +
+          '<div class="sub">' + esc(sub) + "</div></div>" +
+        '<span class="hint">编辑 ›</span>' +
+      "</div>" +
+      '<div class="card ov-card">' +
+        '<div class="list-row" data-act="setGo" data-p="account"><span>账号与同步</span>' +
+          '<span class="hint">' + (auth ? syncAgo(auth.lastSyncAt) + " ›" : "未登录 ›") + "</span></div>" +
+        '<div class="list-row" data-act="setGo" data-p="data"><span>数据备份</span>' +
+          '<span class="hint">' + db.entries.length + " 条 · " + sizeKB() + " KB ›</span></div>" +
+        '<div class="list-row" data-act="goWallets"><span>账户</span>' +
+          '<span class="hint">' + db.wallets.length + " 个 ›</span></div>" +
+        '<div class="list-row" data-act="goTags"><span>分类</span>' +
+          '<span class="hint">' + db.tags.length + " 个 ›</span></div>" +
+        '<div class="list-row" data-act="setGo" data-p="about"><span>关于与更新</span>' +
+          '<span class="hint">v' + APP_VERSION + " ›</span></div>" +
+      "</div>" +
+      stomp;
+  }
+
+  /* 二层：昵称 + 头像 */
+  function viewProfile() {
+    var pf = loadProfile();
+    var nick = ui.pfNick === undefined ? pf.nick : ui.pfNick;
+    var tone = ui.pfTone === undefined ? pf.tone : ui.pfTone;
+    var shown = String(nick || "").trim() || (auth && auth.username) || "我";
+    var tones = AVATAR_TONES.map(function (t, i) {
+      return '<span class="tone' + (i === tone ? " on" : "") + '" data-act="pfTone" data-i="' + i +
+        '" style="background:linear-gradient(140deg,' + t[0] + "," + t[1] + ')"></span>';
+    }).join("");
+    return setHead("个人资料") +
+      '<div class="card ov-card pf-preview">' +
+        avatarHTML(shown, tone, "xl") +
+        '<div class="pf-name">' + esc(shown) + "</div>" +
+        '<div class="pf-sub">' + (auth ? "@" + esc(auth.username) : "未登录也能用，登录后别人能看到") + "</div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">昵称</div>' +
+        '<div class="field-row"><label>显示名</label>' +
+          '<input data-act="pfNick" maxlength="12" placeholder="起个名字" value="' + esc(nick) + '"></div>' +
+        '<div class="list-row"><span>账号</span>' +
+          '<span class="hint">' + esc(auth ? auth.username : "未登录") + "（登录用，不可改）</span></div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">头像底色</div>' +
+        '<div class="tone-pick">' + tones + "</div>" +
+        '<div class="list-row"><span>头像怎么来的</span>' +
+          '<span class="hint">昵称首字 + 底色，不上传照片</span></div>' +
+      "</div>" +
+      '<button class="btn-primary" data-act="pfSave">保存</button>' +
+      (pf.nick || pf.tone ? '<button class="btn-ghost" data-act="pfReset">恢复默认</button>' : "");
+  }
+
+  /* 二层：账号与同步（登录 / 注册 / 同步 / 退出 / 注销） */
+  function viewSetAccount() {
+    if (!auth) {
+      if (ui.authPanel === "login" || ui.authPanel === "register") {
+        var isReg = ui.authPanel === "register";
+        return setHead("账号与同步") + '<div class="card ov-card"><div class="card-title">账号</div>' +
+          '<div class="field-row"><label>用户名</label>' +
+            '<input data-act="authUser" autocomplete="username" placeholder="3–20 位字母数字" value="' + esc(ui.authUser) + '"></div>' +
+          '<div class="field-row"><label>密码</label>' +
+            '<input data-act="authPwd" type="password" autocomplete="' + (isReg ? "new-password" : "current-password") +
+            '" placeholder="' + (isReg ? "至少 6 位" : "输入密码") + '" value="' + esc(ui.authPwd) + '"></div>' +
+          '<button class="btn-primary" data-act="doAuth">' + (isReg ? "注册并登录" : "登录") + "</button>" +
+          '<div class="list-row" data-act="switchAuth"><span>' + (isReg ? "已有账号" : "还没有账号") +
+            '</span><span class="hint">' + (isReg ? "去登录 ›" : "去注册 ›") + "</span></div>" +
         "</div>";
       }
-
-      // 已登录：显示账号 + 同步状态
-      var h = '<div class="card ov-card">' + title +
-        '<div class="mrow">' +
-          '<div class="body">' +
-            '<div class="nm">' + esc(auth.username) + "</div>" +
-            '<div class="sub">已登录 · 数据加密后同步到云端</div>' +
-          "</div>" +
-          '<span class="mrow-act" data-act="logoutAccount">退出</span>' +
-        "</div>" +
-        '<div class="list-row"><span>上次同步</span><span class="hint">' + syncAgo(auth.lastSyncAt) + " · v" + (auth.revision || 0) + "</span></div>" +
-        '<div class="list-row" data-act="syncNow"><span>立即同步</span><span class="hint">›</span></div>' +
-        '<div class="list-row" data-act="deleteAccount"><span>注销账号</span><span class="hint">清空云端数据并删除账号</span></div>';
-      return h + "</div>";
-    }
-    return (
-      '<div class="topbar"><div><h1>设置</h1><div class="sub">数据都在本机</div></div></div>' +
-      syncCard() +
-      '<div class="card ov-card"><div class="card-title">管理</div>' +
-        '<div class="list-row" data-act="goWallets"><span>账户</span><span class="hint">' + db.wallets.length + " 个 · 增改删 ›</span></div>" +
-        '<div class="list-row" data-act="goTags"><span>分类</span><span class="hint">' + db.tags.length + " 个 · 增改删 ›</span></div>" +
+      return setHead("账号与同步") + '<div class="card ov-card"><div class="card-title">账号</div>' +
+        '<div class="list-row" data-act="openAuth"><span>登录 / 注册</span>' +
+          '<span class="hint">登录后跨设备同步 ›</span></div>' +
       "</div>" +
-      '<div class="card ov-card"><div class="card-title">数据</div>' +
+      '<div class="card ov-card"><div class="card-title">说明</div>' +
+        '<div class="list-row"><span>不登录也能记</span><span class="hint">数据全在本机</span></div>' +
+        '<div class="list-row"><span>登录之后</span><span class="hint">加密后上传，云端解不开</span></div>' +
+      "</div>";
+    }
+
+    return setHead("账号与同步") +
+      '<div class="card ov-card"><div class="card-title">账号</div>' +
+        '<div class="mrow">' +
+          avatarHTML(myName(), loadProfile().tone, "") +
+          '<div class="body"><div class="nm">' + esc(myName()) + "</div>" +
+            '<div class="sub">@' + esc(auth.username) + "</div></div>" +
+          '<span class="mrow-act" data-act="setGo" data-p="profile">改名</span>' +
+        "</div>" +
+        '<div class="list-row"><span>上次同步</span>' +
+          '<span class="hint">' + syncAgo(auth.lastSyncAt) + " · v" + (auth.revision || 0) + "</span></div>" +
+        '<div class="list-row" data-act="syncNow"><span>立即同步</span><span class="hint">›</span></div>' +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">退出与注销</div>' +
+        '<div class="list-row" data-act="logoutAccount"><span>退出登录</span>' +
+          '<span class="hint">本机数据保留</span></div>' +
+        '<div class="list-row" data-act="deleteAccount"><span>注销账号</span>' +
+          '<span class="hint">清空云端并删除 ›</span></div>' +
+      "</div>";
+  }
+
+  /* 二层：数据备份（导出 / 恢复 / CSV / 清空） */
+  function viewSetData() {
+    return setHead("数据备份") +
+      '<div class="card ov-card"><div class="card-title">现在有多少</div>' +
         '<div class="list-row"><span>记录条数</span><span class="hint">' + db.entries.length + " 条</span></div>" +
-        '<div class="list-row"><span>占用空间</span><span class="hint">' + (size / 1024).toFixed(1) + " KB</span></div>" +
+        '<div class="list-row"><span>占用空间</span><span class="hint">' + sizeKB() + " KB</span></div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">备份与还原</div>' +
         '<div class="list-row" data-act="exportData"><span>导出备份</span><span class="hint">下载 JSON ›</span></div>' +
         '<div class="list-row" data-act="importJson"><span>恢复备份</span><span class="hint">从 JSON 还原 ›</span></div>' +
         '<div class="list-row" data-act="exportCsv"><span>导出 CSV</span><span class="hint">Excel 可打开 ›</span></div>' +
         '<div class="list-row" data-act="importCsv"><span>导入 CSV</span><span class="hint">从表格导入 ›</span></div>' +
-        '<div class="list-row" data-act="resetData"><span>清空重来</span><span class="hint">全部记录与账户重置 ›</span></div>' +
       "</div>" +
-      (function () {
-        var o = readOrphan();
-        if (!o) return "";
-        var when = new Date(o.at);
-        return '<div class="card ov-card"><div class="card-title">暂存的本机账本</div>' +
-          '<div class="list-row"><span>' + esc(String(o.entries || 0)) + " 条流水 · " + esc(String(o.holdings || 0)) + " 只持仓</span>" +
-            '<span class="hint">' + esc((when.getMonth() + 1) + "月" + when.getDate() + "日") + "暂存</span></div>" +
-          '<div class="list-row"><span>这是另一份账本</span><span class="hint">云端优先，不会自动上传</span></div>' +
-          '<div class="list-row" data-act="mergeOrphan"><span>并入当前账号</span><span class="hint">合并后一起备份 ›</span></div>' +
-          '<div class="list-row" data-act="exportOrphan"><span>导出成 JSON</span><span class="hint">先存下来再说 ›</span></div>' +
-          '<div class="list-row" data-act="dropOrphan"><span>丢弃</span><span class="hint">删掉这份暂存 ›</span></div>' +
-          "</div>";
-      })() +
-      '<div class="card ov-card"><div class="card-title">关于</div>' +
-        '<div class="list-row"><span>版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
-        '<div class="list-row"><span>数据位置</span><span class="hint">本机 localStorage</span></div>' +
-        '<div class="list-row"><span>联网</span><span class="hint">只有报价需要</span></div>' +
-        '<div class="list-row" data-act="forceUpdate"><span>检查更新</span><span class="hint">清缓存并重新加载 ›</span></div>' +
-      "</div>"
-    );
+      '<div class="card ov-card"><div class="card-title">危险操作</div>' +
+        '<div class="list-row" data-act="resetData"><span>清空重来</span>' +
+          '<span class="hint">全部记录与账户重置 ›</span></div>' +
+      "</div>";
+  }
+
+  /* 二层：关于与更新 */
+  function viewSetAbout() {
+    return setHead("关于与更新") +
+      '<div class="card ov-card"><div class="card-title">版本</div>' +
+        '<div class="list-row"><span>当前版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
+        '<div class="list-row" data-act="forceUpdate"><span>检查更新</span>' +
+          '<span class="hint">清缓存并重新加载 ›</span></div>' +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">数据在哪</div>' +
+        '<div class="list-row"><span>账本存放</span><span class="hint">本机 localStorage</span></div>' +
+        '<div class="list-row"><span>联网用在哪</span><span class="hint">行情、同步、识别</span></div>' +
+        '<div class="list-row"><span>加密</span><span class="hint">上传前在本机加密</span></div>' +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">条款</div>' +
+        '<a class="list-row" href="privacy.html"><span>隐私政策与用户协议</span><span class="hint">›</span></a>' +
+        '<a class="list-row" href="guide.html"><span>新手指引</span><span class="hint">›</span></a>' +
+      "</div>";
   }
 
   /* ================= 账户管理 ================= */
@@ -3625,12 +3798,9 @@
       "<div class='consent-page'>" +
         "<div class='consent-brand'>" +
           "<div class='auth-mark'>" +
-            "<svg viewBox='0 0 24 24' aria-hidden='true'>" +
-              "<rect x='4.5' y='3.5' width='15' height='17' rx='3.2' fill='#ffffff'/>" +
-              "<path d='M8.2 8.6h7.6M8.2 12h7.6M8.2 15.4h4.6' stroke='#0e0e10' stroke-width='1.7' stroke-linecap='round' fill='none'/>" +
-            "</svg>" +
+            "<svg viewBox='0 0 200 200' aria-hidden='true'><path fill='#EAF7FD' d='M101.4 21.0L100.1 22.5L98.9 23.9L97.8 25.4L96.8 27.0L95.8 28.6L94.8 30.2L94.0 31.8L93.1 33.5L92.4 35.2L91.7 36.9L91.0 38.6L90.5 40.4L89.9 42.1L89.4 43.9L89.0 45.7L88.6 47.5L88.3 49.3L88.0 51.1L87.7 53.0L87.5 54.8L87.3 56.6L87.2 58.5L87.1 60.3L87.0 62.2L86.9 64.0L86.9 65.8L86.8 67.7L86.8 69.5L86.8 71.3L86.8 73.2L86.9 75.0L86.9 76.8L86.9 78.6L87.0 80.4L87.0 82.2L87.0 84.0L87.1 85.8L87.1 87.6L87.1 89.4L87.1 91.1L87.1 92.9L87.1 94.6L87.1 96.3L87.1 98.0L87.0 99.7L86.9 101.4L86.8 103.1L86.7 104.7L86.6 106.4L86.4 108.0L86.2 109.6L86.0 111.1L85.8 112.7L85.5 114.2L85.2 115.8L84.9 117.2L84.5 118.7L84.1 120.2L83.7 121.6L83.3 123.0L82.8 124.4L82.3 125.8L81.8 127.2L81.2 128.6L80.6 129.9L79.9 131.2L79.3 132.6L78.6 133.9L77.8 135.2L77.0 136.5L76.2 137.8L75.3 139.1L124.7 160.9L125.6 158.0L126.4 155.2L127.1 152.4L127.7 149.6L128.2 146.8L128.7 144.1L129.1 141.4L129.4 138.7L129.6 136.0L129.7 133.4L129.8 130.8L129.8 128.3L129.8 125.8L129.7 123.3L129.5 120.9L129.3 118.5L129.1 116.1L128.7 113.8L128.4 111.5L128.0 109.2L127.6 107.0L127.2 104.8L126.7 102.7L126.2 100.6L125.6 98.5L125.1 96.5L124.5 94.5L123.9 92.6L123.3 90.6L122.7 88.7L122.1 86.9L121.5 85.0L120.9 83.2L120.2 81.4L119.6 79.7L119.0 78.0L118.3 76.3L117.7 74.6L117.1 72.9L116.5 71.3L115.9 69.7L115.3 68.2L114.7 66.6L114.2 65.1L113.6 63.6L113.1 62.1L112.6 60.6L112.1 59.2L111.7 57.7L111.2 56.3L110.8 54.9L110.4 53.6L110.1 52.2L109.7 50.9L109.4 49.5L109.2 48.2L108.9 46.9L108.7 45.6L108.6 44.3L108.4 43.0L108.3 41.7L108.3 40.4L108.3 39.1L108.3 37.8L108.4 36.5L108.5 35.2L108.7 33.8L109.0 32.5L109.3 31.1L109.7 29.8L110.1 28.4L110.6 27.0Z'/><path fill='none' stroke='#A8E0F7' stroke-width='16' stroke-linecap='round' d='M18 164q20-14 40 0t40 0t40 0t40 0'/></svg>" +
           "</div>" +
-          "<h1>随手账</h1>" +
+          "<h1>长流</h1>" +
           "<p>开始之前，请先看清我们怎么处理你的数据</p>" +
         "</div>" +
         "<div class='consent-card'>" +
@@ -3698,7 +3868,7 @@
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
       : (r.view === "holdings" || r.view === "overview" || r.view === "stock") ? "assets"
-      : (r.view === "wallets" || r.view === "tags") ? "config"
+      : (r.view === "wallets" || r.view === "tags" || r.view === "config") ? "config"
       : r.view === "search" ? "book"
       : r.view;
     var tabs = isEntry
@@ -3969,7 +4139,7 @@
     var blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "随手账备份-" + ymd(new Date()) + ".json";
+    a.download = "长流备份-" + ymd(new Date()) + ".json";
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
   }
@@ -3995,7 +4165,7 @@
         try { raw = JSON.parse(String(reader.result || "null")); } catch (e) { raw = null; }
         if (!raw || !Array.isArray(raw.entries)) {
           reportSheet(
-            "这个文件不是随手账的备份",
+            "这个文件不是长流的备份",
             "备份文件里必须有 entries 数组。请选「导出备份」下载的那个 .json 文件。",
             ["选中的文件：解析" + (raw ? "成功，但没有 entries 数组" : "失败，不是合法 JSON"),
              "从别的记账软件导出的数据，可以走「导入 CSV」"]
@@ -4104,7 +4274,7 @@
     var blob = new Blob([text], { type: "text/csv;charset=utf-8" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "随手账_" + ymd(new Date()).replace(/-/g, "") + ".csv";
+    a.download = "长流_" + ymd(new Date()).replace(/-/g, "") + ".csv";
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
     toast("已导出 " + db.entries.length + " 条");
@@ -4711,6 +4881,26 @@
     else if (act === "delHolding") delHolding(id);
     else if (act === "refreshQuotes") refreshQuotes(true);
     else if (act === "toggleMenu") { location.hash = "#/config"; }
+    else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
+    else if (act === "setBack") { location.hash = "#/config"; }
+    else if (act === "pfTone") { ui.pfTone = Number(el.getAttribute("data-i")) || 0; render(); }
+    else if (act === "pfSave") {
+      var nickNow = String(ui.pfNick === undefined ? loadProfile().nick : ui.pfNick || "").trim().slice(0, 12);
+      var toneNow = ui.pfTone === undefined ? loadProfile().tone : ui.pfTone;
+      saveProfile({ nick: nickNow, tone: toneNow });
+      ui.pfNick = undefined;
+      ui.pfTone = undefined;
+      /* hash 没变的话 hashchange 不会触发，得自己重绘一次 */
+      if (location.hash === "#/config") render(); else location.hash = "#/config";
+      toast("存好了");
+    }
+    else if (act === "pfReset") {
+      saveProfile({ nick: "", tone: 0 });
+      ui.pfNick = undefined;
+      ui.pfTone = undefined;
+      render();
+      toast("已恢复默认");
+    }
     else if (act === "exportData") exportData();
     else if (act === "exportCsv") exportCsv();
     else if (act === "importCsv") importCsv();
@@ -4800,6 +4990,7 @@
     else if (act === "searchQ") { ui.searchQ = el.value; paintSearch(); }
     else if (act === "authUser") ui.authUser = el.value;
     else if (act === "authPwd") ui.authPwd = el.value;
+    else if (act === "pfNick") { ui.pfNick = el.value; paintProfilePreview(); }
     else if (act === "dcFormTitle") decideState().form.title = el.value;
     else if (act === "dcFormAmount") decideState().form.amount = el.value;
     else if (act === "dcFormReason") decideState().form.reason = el.value;
