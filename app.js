@@ -2619,6 +2619,7 @@
         // 详情页单独拉一次完整数据（带评论区），列表缓存里没有这些
         detail: null, detailId: 0, detailLoading: false, detailError: "",
         commentDraft: "", commentBusy: false,
+        postBusy: false,
         form: { title: "", amount: "", reason: "", category: "", anonymous: false }
       };
     }
@@ -2669,9 +2670,14 @@
     } catch (e) { /* 存不下不影响使用，下次再写 */ }
   }
 
-  function loadDecideFeed(append, silent) {
+  /* force=true 时忽略 d.loading 这把锁。
+     踩过的坑：发布成功后调用这里，如果正好有个轮询请求还在飞，
+     就被锁直接 return 了——用户关掉了发布面板、列表却还是旧的，
+     以为没发出去，于是再点一次，广场上出现两条一模一样的。 */
+  function loadDecideFeed(append, silent, force) {
     var d = decideState();
-    if (!auth || d.loading) return;
+    if (!auth) return;
+    if (d.loading && !force) return;
 
     /* 静默只对「不在决策页」成立：如果预取还在飞的时候用户已经进了决策页，
        数据回来必须重绘，否则页面停在骨架屏上再也出不来。 */
@@ -2790,6 +2796,8 @@
     }
     if (!isFinite(cents) || cents <= 0) { toast("金额不对"); return; }
     if (cents > 100000000) { toast("单笔最多 100 万，别把这里当银行"); return; }
+    if (d.postBusy) return;
+    d.postBusy = true;
     apiFetch("/decisions", {
       method: "POST",
       body: JSON.stringify({
@@ -2800,15 +2808,27 @@
         anonymous: !!f.anonymous
       })
     }).then(function (r) {
+      d.postBusy = false;
       if (r.status === 401) { handleAuthExpired(); return; }
       if (!r.ok) { toast(errText(r.body, "发布失败")); return; }
       d.panel = null;
       d.form = { title: "", amount: "", reason: "", category: "", anonymous: false };
       d.scope = "mine";
       d.sort = "new";
-      loadDecideFeed(false);
+      /* 先把刚发的这条直接放到列表最前面：不等网络、不等锁，
+         用户点完立刻能看见自己发的帖子，就不会怀疑没发出去。 */
+      if (r.body && r.body.id) {
+        d.items = [r.body].concat(d.items || []);
+        d.loaded = true;
+        d.hasMore = false;
+      }
+      render();
+      loadDecideFeed(false, false, true);
       toast("发出去了，等大家投票");
-    }).catch(function () { toast("网络不通"); });
+    }).catch(function () {
+      d.postBusy = false;
+      toast("网络不通");
+    });
   }
 
   function decideCard(p) {
@@ -2886,7 +2906,7 @@
         }).join("") + "</div>" +
         '<div class="dc-anon" data-act="dcFormAnon"><span>匿名发布</span>' +
           '<i class="' + (f.anonymous ? "on" : "") + '"></i></div>' +
-        '<button class="btn-primary" data-act="dcSubmit">发出去，让大家投票</button>' +
+        '<button class="btn-primary" data-act="dcSubmit"' + (decideState().postBusy ? " disabled" : "") + '>发出去，让大家投票</button>' +
       "</div>";
   }
 
