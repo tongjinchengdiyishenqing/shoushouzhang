@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>随手账 · 新手指引</title>
+<style>
+  :root{--ink:#0e0e10;--ink2:#4a4a54;--ink3:#767680;--line:#ededf1;--accent:#d0532c;--pos:#1e7a58;--bg:#f5f5f7;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;padding:0 0 60px}
+  .wrap{max-width:640px;margin:0 auto;padding:0 18px}
+  header{padding:38px 0 10px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.5px}
+  .sub{color:var(--ink3);font-size:14px}
+  .card{background:#fff;border-radius:16px;padding:18px;margin:14px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  h2{font-size:17px;margin:0 0 10px;letter-spacing:-.2px}
+  .step{display:flex;gap:12px;margin:14px 0}
+  .num{flex:none;width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .step p{margin:0;color:var(--ink2);font-size:15px}
+  .step b{color:var(--ink)}
+  a.btn{display:block;text-align:center;background:var(--ink);color:#fff;text-decoration:none;font-weight:700;padding:15px;border-radius:999px;margin:16px 0 6px}
+  a.ghost{display:block;text-align:center;color:var(--ink2);text-decoration:none;font-weight:600;padding:12px;font-size:14px}
+  .tip{background:#fbf7f4;border-radius:12px;padding:12px 14px;font-size:14px;color:#7a4a2a;margin-top:12px}
+  .tip b{color:#5a3418}
+  ul{margin:8px 0 0;padding-left:20px;color:var(--ink2);font-size:15px}
+  li{margin:6px 0}
+  code{background:#f1f1f4;border-radius:6px;padding:1px 6px;font-size:14px}
+  .foot{color:var(--ink3);font-size:13px;text-align:center;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>随手账 · 新手指引</h1>
+    <div class="sub">两分钟看完，就能开始记了</div>
+  </header>
+
+  <div class="card">
+    <h2>一、先能记账（不用装任何东西）</h2>
+    <div class="step"><div class="num">1</div><p>点下面的按钮，用<b>用户名 + 密码</b>注册一个账号（用户名 3–20 位字母数字，密码至少 6 位）。</p></div>
+    <div class="step"><div class="num">2</div><p>回首页点右下角 <b>＋</b>，输金额 → 选分类 → 选账户 → 记下。</p></div>
+    <div class="step"><div class="num">3</div><p>数据先存你手机上，加密后才上传；换手机登录同一账号会自动回来。</p></div>
+    <a class="btn" href="/">打开随手账</a>
+    <a class="ghost" href="#next">想试试"付完钱自动记账" ↓</a>
+  </div>
+
+  <div class="card" id="next">
+    <h2>二、自动记账（要装采集端，仅安卓）</h2>
+    <div class="step"><div class="num">1</div><p>装 <b>随手账采集</b>（APK 我单独发你）。装的时候安卓会提示"未知来源"，允许一次即可。</p></div>
+    <div class="step"><div class="num">2</div><p>打开 App，用<b>同一个账号</b>登录一次（这样采集端才认得出是你）。</p></div>
+    <div class="step"><div class="num">3</div><p>按 App 里的提示开权限：<b>设置 → 无障碍 → 随手账 · 自动记账 → 打开</b>。<br>不开这个权限，自动记账用不了，但手动记账完全不受影响。</p></div>
+    <div class="step"><div class="num">4</div><p>之后付完钱，回到随手账 →「自动识别」，会看到一笔<b>待确认</b>，点「全部记下」才真的进账本。</p></div>
+    <div class="tip">
+      <b>为什么还要我确认？</b><br>
+      自动识别会看错商户名（尤其人名、小店名）。让它先待在"待确认"里，你扫一眼、改一下，比直接写进账本安全。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>三、几个常见问题</h2>
+    <ul>
+      <li><b>付了钱没自动出现？</b>先确认「自动识别」页刷新一下；还是没有，就把那一屏截给我——识别在微信页面上偶尔会漏。</li>
+      <li><b>商户名/金额认错了？</b>待确认那一栏里，名字是<b>可以直接点进去改的</b>，分类也能下拉换。</li>
+      <li><b>会不会看到我的聊天？</b>不会。只看支付结果那一屏的文字/截图，不读聊天、不读其他 App。</li>
+      <li><b>截图发到哪了？</b>发给第三方识别模型用于认出这一笔，不在手机留原图，也不存服务器。</li>
+      <li><b>不想用了？</b>设置 → 注销账号，云端数据一起删掉；采集端直接卸载。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>四、帮我留意这几件事</h2>
+    <ul>
+      <li>注册/登录有没有卡住的（提示看不懂也算）</li>
+      <li>记一笔的流程顺不顺，键盘会不会挡住按钮</li>
+      <li>自动记账有没有漏、有没有认错（认错了把截图发我）</li>
+      <li>你最想加的一个功能是什么</li>
+    </ul>
+  </div>
+
+  <div class="foot">有问题直接找我，别客气 —— 这一版就是拿来被挑毛病的</div>
+</div>
+</body>
+</html>
