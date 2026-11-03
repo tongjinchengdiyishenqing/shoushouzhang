@@ -7,7 +7,7 @@
 //     下次打开就是新的，既快又跟得上更新
 //   · 只处理同源 GET，不碰外部请求
 
-const CACHE_VERSION = 'suishouzhang-v40';
+const CACHE_VERSION = 'suishouzhang-v41';
 const CORE = [
   './',
   './index.html',
@@ -70,7 +70,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 静态资源：缓存优先 + 后台更新
+  /* 代码资源（js/css）：网络优先。
+     原来这里是"缓存优先 + 后台更新"，踩过一次真坑：
+     部署后 SW 先装好、GitHub Pages 还没构建完，于是把**旧的 app.js** 缓存进了新版本号，
+     用户拿到 v40 的 SW + 老代码，界面上看不到新功能，还以为没发版。
+     js/css 只有几百 KB，网络优先的代价可以接受；断网时再回落到缓存，离线照样能用。 */
+  const isCode = /\.(js|css)$/.test(new URL(req.url).pathname);
+
+  if (isCode) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' })
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req, { ignoreSearch: true }))
+    );
+    return;
+  }
+
+  // 其它静态资源（图标、字体）：缓存优先 + 后台更新
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       const network = fetch(req)
