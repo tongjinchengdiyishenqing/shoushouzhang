@@ -3514,9 +3514,52 @@
   /* 上一次渲染的路由标识，用来判断是「换页」还是「同页重绘」 */
   var lastRoute = "";
 
+  /* ================= 首次启动隐私同意（国内商店硬性要求） ================= */
+  var CONSENT_KEY = "sz.consent.v1";
+
+  function consentOK() {
+    try { return localStorage.getItem(CONSENT_KEY) === "1"; } catch (e) { return true; }
+  }
+
+  function renderConsent() {
+    var app = document.getElementById("app");
+    app.className = "phone auth-mode";
+    app.innerHTML =
+      "<div class='consent-page'>" +
+        "<div class='consent-brand'>" +
+          "<div class='auth-mark'>" +
+            "<svg viewBox='0 0 24 24' aria-hidden='true'>" +
+              "<rect x='4.5' y='3.5' width='15' height='17' rx='3.2' fill='#ffffff'/>" +
+              "<path d='M8.2 8.6h7.6M8.2 12h7.6M8.2 15.4h4.6' stroke='#0e0e10' stroke-width='1.7' stroke-linecap='round' fill='none'/>" +
+            "</svg>" +
+          "</div>" +
+          "<h1>随手账</h1>" +
+          "<p>开始之前，请先看清我们怎么处理你的数据</p>" +
+        "</div>" +
+        "<div class='consent-card'>" +
+          "<div class='consent-row'><b>账本</b><span>记录在本机；加密后才上传，云端和我们都解不开</span></div>" +
+          "<div class='consent-row'><b>账号</b><span>只存用户名和密码的哈希，不存明文</span></div>" +
+          "<div class='consent-row'><b>自动记账</b><span>需你手动开启无障碍权限；只读支付结果页的文字与截图，只取金额、商户、时间；不读聊天、不读其他应用</span></div>" +
+          "<div class='consent-row'><b>第三方</b><span>截图识别会发给第三方视觉服务（DeepSeek / 火山方舟），仅传图像，不带你的账号信息</span></div>" +
+          "<div class='consent-row'><b>你的权利</b><span>随时导出全部数据、随时注销并删除云端数据</span></div>" +
+        "</div>" +
+        "<button class='auth-submit' data-act='consentAgree'>我已阅读并同意</button>" +
+        "<div class='consent-links'>" +
+          "<a href='privacy.html' target='_blank'>隐私政策全文</a>" +
+          "<span>·</span>" +
+          "<a href='guide.html' target='_blank'>使用说明</a>" +
+        "</div>" +
+        "<div class='consent-note'>不同意就无法使用本应用（记账需要账号与云端同步）</div>" +
+      "</div>";
+    return true;
+  }
+
   function render() {
     var r = parseHash();
     var app = document.getElementById("app");
+
+    // 未同意隐私条款：只显示同意页，别的什么都不渲染
+    if (!consentOK()) { renderConsent(); return; }
 
     /* 没登录就只有登录页：不渲染任何 tab、任何账本内容。
        数据本来就在本机 localStorage 里，不登录也没有"泄露"问题，
@@ -4510,6 +4553,11 @@
     var v = el.getAttribute("data-v");
     var id = el.getAttribute("data-id");
 
+    if (act === "consentAgree") {
+      try { localStorage.setItem(CONSENT_KEY, "1"); } catch (e) {}
+      render();
+      return;
+    }
     if (act === "prevMonth") shiftMonth(-1);
     else if (act === "nextMonth") shiftMonth(1);
     else if (act === "setFlow") {
