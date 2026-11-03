@@ -2778,3 +2778,19 @@ html, body {
   line-height: 1.55;
   color: var(--ink-3);
 }
+
+/* 待确认里的商户名可改：做成"看起来就像能打字"的输入框，别让人猜 */
+.au-name.au-edit {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  border-bottom: 1px dashed rgba(0,0,0,.14);
+  line-height: 1.5;
+}
+.au-name.au-edit:focus { outline: none; border-bottom-color: var(--ink); }
+.au-name.au-edit::placeholder { color: var(--ink-3); font-weight: 500; }
