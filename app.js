@@ -2152,6 +2152,23 @@
      采集端只负责丢文本，规则永远只有一份。 */
   var _rawLoading = false;
 
+  var _rawTimer = null;
+
+  /* 停在自动识别页时定期拉一次。采集端是"从后面推过来"的，
+     页面不会自己重绘，不轮询的话用户会以为没采到。 */
+  function startPendingPoll() {
+    if (_rawTimer) return;
+    _rawTimer = setInterval(function () {
+      if (parseHash().view !== "auto") { stopPendingPoll(); return; }
+      if (document.hidden) return;
+      loadPendingRaw();
+    }, 8000);
+  }
+
+  function stopPendingPoll() {
+    if (_rawTimer) { clearInterval(_rawTimer); _rawTimer = null; }
+  }
+
   function loadPendingRaw() {
     if (!auth || !auth.token || _rawLoading) return;
     _rawLoading = true;
@@ -3530,6 +3547,9 @@
     else if (r.view === "auto") body = viewAuto();
     else if (r.view === "config") body = viewConfig();
     else body = viewBook();
+
+    // 离开自动识别页就停掉轮询，别在别的页面白跑请求
+    if (r.view === "auto") startPendingPoll(); else stopPendingPoll();
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
