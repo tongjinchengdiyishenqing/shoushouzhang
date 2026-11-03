@@ -252,6 +252,70 @@
     });
   }
 
+  /* 后端的错误体有两种：字符串（HTTPException 的 detail）
+     和数组（FastAPI 422 校验失败，每个元素是一个 {loc, msg, ...} 对象）。
+     直接塞进 toast 或 innerHTML，数组就变成一句 "[object Object]"——
+     用户看到这五个字，等于什么都没说，只会以为 App 坏了。 */
+  var ERR_FIELD_CN = {
+    title: "标题", amountCents: "金额", reason: "理由", category: "分类",
+    anonymous: "匿名", deadlineHours: "截止时间", content: "内容", choice: "选择",
+    comment: "评论", username: "用户名", password: "密码", cipher: "账本数据",
+    revision: "版本号", text: "内容", source: "来源", items: "条目", code: "代码"
+  };
+
+  function errMsgCn(it) {
+    var m = String((it && it.msg) || "");
+    var r;
+    if ((r = m.match(/should have at most (\d+) char/i))) return "最多 " + r[1] + " 个字";
+    if ((r = m.match(/should have at least (\d+) char/i))) return "至少 " + r[1] + " 个字";
+    if ((r = m.match(/greater than (\d+)/i))) return "要大于 " + r[1];
+    if ((r = m.match(/less than or equal to (\d+)/i))) return "不能超过 " + r[1];
+    if (/field required/i.test(m)) return "必填";
+    if (/valid integer/i.test(m)) return "要填整数";
+    if (/valid string/i.test(m)) return "要填文字";
+    if (/valid boolean/i.test(m)) return "取值不对";
+    if (/valid list/i.test(m)) return "格式不对";
+    if (/match pattern/i.test(m)) return "格式不对";
+    return m;
+  }
+
+  /* 把任意错误体翻成一句能看懂的中文。永远返回字符串。 */
+  function errText(body, fallback) {
+    var fb = fallback || "出错了，稍后再试";
+    if (body === null || body === undefined) return fb;
+    var d = body;
+    if (typeof body === "object" && !Array.isArray(body)) {
+      if (body.detail !== undefined && body.detail !== null && body.detail !== "") d = body.detail;
+      else if (body.error !== undefined && body.error !== null && body.error !== "") d = body.error;
+      else if (body.message !== undefined && body.message !== null && body.message !== "") d = body.message;
+      else return fb;
+    }
+    if (typeof d === "string") return String(d).trim() || fb;
+    if (typeof d === "number" || typeof d === "boolean") return String(d);
+    if (Array.isArray(d)) {
+      var out = [];
+      for (var i = 0; i < d.length && i < 3; i++) {
+        var it = d[i];
+        if (typeof it === "string") { if (it.trim()) out.push(it.trim()); continue; }
+        if (it && typeof it === "object") {
+          var field = "";
+          if (it.loc && it.loc.length) {
+            var k = String(it.loc[it.loc.length - 1]);
+            field = ERR_FIELD_CN[k] || (k === "body" ? "" : k);
+          }
+          var m = errMsgCn(it);
+          if (m) out.push(field ? field + " " + m : m);
+        }
+      }
+      return out.length ? out.join("；") : fb;
+    }
+    if (d && typeof d === "object") {
+      var m2 = errMsgCn(d);
+      return m2 || fb;
+    }
+    return fb;
+  }
+
   /* 登录时派生一次、导出成 raw 存本地，之后自动同步直接复用：
      既不用每次输密码，也不用每次重算 20 万轮 PBKDF2 */
   var KEY_STORE = "sz.syncKey.v1";
@@ -375,7 +439,7 @@
       method: "POST",
       body: JSON.stringify({ username: u, password: p })
     }).then(function (res) {
-      if (!res.ok) throw new Error((res.body && res.body.detail) || ("HTTP " + res.status));
+      if (!res.ok) throw new Error(errText(res.body, "HTTP " + res.status));
       auth = {
         token: res.body.token, userId: res.body.userId,
         username: res.body.username, revision: 0, lastSyncAt: 0
@@ -1750,7 +1814,7 @@
 
     function get(path) {
       return apiFetch(path, {}).then(function (r) {
-        if (!r.ok) throw new Error((r.body && (r.body.detail || r.body.message)) || ("HTTP " + r.status));
+        if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
         return r.body;
       });
     }
@@ -2328,7 +2392,7 @@
         .then(function (r) {
           if (r.status === 401) { handleAuthExpired(); return; }
           if (!r.ok) {
-            var msg = (r.body && (r.body.error || r.body.detail)) || ("识别服务返回 " + r.status);
+            var msg = errText(r.body, "识别服务返回 " + r.status);
             if (r.status === 429) msg = "识别太频繁了，等一分钟再试（每分钟 6 次）";
             else if (r.status === 503 || r.status === 502) msg = "识别服务暂时不可用，可以手动记一笔";
             autoApplyShot({ ok: false, error: msg });
@@ -2647,7 +2711,7 @@
         if (r.status === 401) { handleAuthExpired(); return; }
         if (!r.ok) {
           // 有缓存就别用错误盖掉已有内容
-          if (!d.items.length) d.error = (r.body && r.body.detail) || "加载失败";
+          if (!d.items.length) d.error = errText(r.body, "加载失败");
           paint();
           return;
         }
@@ -2677,7 +2741,7 @@
       body: JSON.stringify({ choice: choice })
     }).then(function (r) {
       if (r.status === 401) { handleAuthExpired(); return; }
-      if (!r.ok) { toast((r.body && r.body.detail) || "投票失败"); return; }
+      if (!r.ok) { toast(errText(r.body, "投票失败")); return; }
       if (target) { target.votes = r.body.votes; target.myVote = choice; }
       if (d.detail && d.detail.id === id) { d.detail.votes = r.body.votes; d.detail.myVote = choice; }
       render();
@@ -2692,7 +2756,7 @@
       body: JSON.stringify({ choice: choice })
     }).then(function (r) {
       if (r.status === 401) { handleAuthExpired(); return; }
-      if (!r.ok) { toast((r.body && r.body.detail) || "操作失败"); return; }
+      if (!r.ok) { toast(errText(r.body, "操作失败")); return; }
       for (var i = 0; i < d.items.length; i++) {
         if (d.items[i].id === id) {
           d.items[i].status = "closed";
@@ -2716,7 +2780,16 @@
     var raw = String(f.amount).replace(/[,\s]/g, "");
     var cents = Math.round(parseFloat(raw) * 100);
     if (!f.title.trim()) { toast("先写想买什么"); return; }
+    if (f.title.trim().length > 60) {
+      toast("标题最多 60 字，现在 " + f.title.trim().length + " 字，删短一点");
+      return;
+    }
+    if (f.reason.trim().length > 240) {
+      toast("理由最多 240 字，现在 " + f.reason.trim().length + " 字");
+      return;
+    }
     if (!isFinite(cents) || cents <= 0) { toast("金额不对"); return; }
+    if (cents > 100000000) { toast("单笔最多 100 万，别把这里当银行"); return; }
     apiFetch("/decisions", {
       method: "POST",
       body: JSON.stringify({
@@ -2728,7 +2801,7 @@
       })
     }).then(function (r) {
       if (r.status === 401) { handleAuthExpired(); return; }
-      if (!r.ok) { toast((r.body && r.body.detail) || "发布失败"); return; }
+      if (!r.ok) { toast(errText(r.body, "发布失败")); return; }
       d.panel = null;
       d.form = { title: "", amount: "", reason: "", category: "", anonymous: false };
       d.scope = "mine";
@@ -2939,7 +3012,7 @@
       d.detailLoading = false;
       if (r.status === 401) { handleAuthExpired(); return; }
       if (!r.ok) {
-        d.detailError = (r.body && r.body.detail) || "打不开这条";
+        d.detailError = errText(r.body, "打不开这条");
         render();
         return;
       }
@@ -2959,6 +3032,10 @@
     if (!id || d.commentBusy) return;
     var text = String(d.commentDraft || "").trim();
     if (!text) { toast("写点什么再发"); return; }
+    if (text.length > 300) {
+      toast("评论最多 300 字，现在 " + text.length + " 字");
+      return;
+    }
     d.commentBusy = true;
     render();
     apiFetch("/decisions/" + id + "/comments", {
@@ -2968,7 +3045,7 @@
       d.commentBusy = false;
       if (r.status === 401) { handleAuthExpired(); return; }
       if (!r.ok) {
-        toast((r.body && r.body.detail) || "发送失败");
+        toast(errText(r.body, "发送失败"));
         render();
         return;
       }
@@ -3657,7 +3734,7 @@
     var el = document.createElement("div");
     el.className = "toast show";
     var span = document.createElement("span");
-    span.textContent = msg;
+    span.textContent = typeof msg === "string" ? msg : errText(msg, "出错了，稍后再试");
     el.appendChild(span);
     if (actionText) {
       el.classList.add("has-action");
