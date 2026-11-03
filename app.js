@@ -2490,10 +2490,14 @@
       result = "";
     }
 
-    // 进页面就拉一次待确认（延后一拍，避免在 render 里递归）
-    if (auth && auth.token && !a._rawFetched) {
-      a._rawFetched = true;
-      setTimeout(function () { loadPendingRaw(); }, 0);
+    /* 每次进页面都拉一次待确认（10 秒内不重复）。
+       原来只拉一次（_rawFetched），结果采集端刚上报的那笔，用户切回来根本看不见。 */
+    if (auth && auth.token) {
+      var nowRaw = Date.now();
+      if (!a._rawAt || nowRaw - a._rawAt > 10000) {
+        a._rawAt = nowRaw;
+        setTimeout(function () { loadPendingRaw(); }, 0);
+      }
     }
 
     return '<div class="topbar"><div class="icon-btn" data-act="autoBack">‹</div>' +
