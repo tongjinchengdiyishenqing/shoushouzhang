@@ -2358,7 +2358,7 @@
         cents: it.cents,
         tagId: it.tagId,
         walletId: it.walletId || fallbackWallet,
-        memo: it.memo || "",
+        memo: (it.memo || it.merchant || "自动记账").trim(),
         origin: "auto",
         at: Date.now()
       });
@@ -2413,7 +2413,7 @@
         cents: it.cents,
         tagId: it.tagId,
         walletId: it.walletId || fallbackWallet,
-        memo: it.memo || "",
+        memo: (it.memo || it.merchant || "自动记账").trim(),
         origin: "auto",
         at: Date.now()
       });
@@ -2453,7 +2453,8 @@
     var remoteRows = (a.remote || []).map(function (it, i) {
       return '<div class="au-row remote">' +
         '<div class="au-main">' +
-          '<div class="au-name">' + esc(it.merchant || "未识别商户") + "</div>" +
+          '<input class="au-name au-edit" data-act="auNameRemote" data-id="' + i + '" value="' +
+            esc(it.merchant || "") + '" placeholder="商户名可改" maxlength="30">' +
           '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) + "</div>" +
         "</div>" +
         '<div class="au-right">' +
@@ -2476,7 +2477,8 @@
     var rows = a.items.map(function (it, i) {
       return '<div class="au-row">' +
         '<div class="au-main">' +
-          '<div class="au-name">' + esc(it.merchant || "未识别商户") + "</div>" +
+          '<input class="au-name au-edit" data-act="auNameLocal" data-id="' + i + '" value="' +
+            esc(it.merchant || "") + '" placeholder="商户名可改" maxlength="30">' +
           '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) + "</div>" +
         "</div>" +
         '<div class="au-right">' +
@@ -4658,6 +4660,16 @@
     else if (act === "dcFormReason") decideState().form.reason = el.value;
     else if (act === "dcComment") decideState().commentDraft = el.value;
     else if (act === "autoText") autoState().text = el.value;
+    else if (act === "auNameLocal") {
+      var au1 = autoState();
+      var i1 = Number(el.getAttribute("data-id"));
+      if (au1.items[i1]) { au1.items[i1].merchant = el.value; au1.items[i1].memo = el.value; }
+    }
+    else if (act === "auNameRemote") {
+      var au2 = autoState();
+      var i2 = Number(el.getAttribute("data-id"));
+      if (au2.remote && au2.remote[i2]) { au2.remote[i2].merchant = el.value; au2.remote[i2].memo = el.value; }
+    }
   });
 
   document.addEventListener("change", function (ev) {
