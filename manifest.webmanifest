@@ -1,21 +1,51 @@
 {
-  "name": "随手账",
-  "short_name": "随手账",
-  "description": "随手账 —— 一个纯本地的记账本。支出、收入、账户余额、分类分析，数据只存在你自己的浏览器里。",
+  "name": "长流",
+  "short_name": "长流",
+  "description": "长流 —— 记下每一笔，细水汇成海。支出、收入、账户余额、分类分析都在你自己手里，加密后才上云。",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "./index.html#/book",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "portrait",
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
-  "categories": ["finance", "productivity"],
+  "theme_color": "#1E6E96",
+  "background_color": "#FFFFFF",
+  "categories": [
+    "finance",
+    "productivity"
+  ],
   "icons": [
+    {
+      "src": "icons/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-256.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-384.png",
+      "sizes": "384x384",
       "type": "image/png",
       "purpose": "any"
     },
@@ -26,7 +56,13 @@
       "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
