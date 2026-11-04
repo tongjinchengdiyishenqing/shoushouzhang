@@ -867,6 +867,7 @@
   };
 
   function viewBook() {
+    setTimeout(function () { refreshPendingCount(false); }, 0);
     var s = summarize(ui.month);
     var parts = ui.month.split("-");
     var label = parts[0] + " 年 " + Number(parts[1]) + " 月";
@@ -989,7 +990,16 @@
         : '<div class="empty"><span class="big-emoji">🪶</span>还没有任何记录，点右下角记第一笔</div>';
     }
 
-    return head + chart + yearCard + listHtml;
+    /* 有没确认的自动识别就顶一条，位置在 hero 下面第一屏就能看见 */
+    var pendingBar = _pendingN > 0
+      ? '<div class="pending-bar" data-act="goAuto">' +
+          '<i class="pb-dot"></i>' +
+          '<span>有 <b>' + _pendingN + "</b> 笔自动识别的账还没确认</span>" +
+          "<em>去确认 ›</em>" +
+        "</div>"
+      : "";
+
+    return head + pendingBar + chart + yearCard + listHtml;
   }
 
   function groupEntries(list) {
@@ -2395,6 +2405,34 @@
     }).catch(function () {
       _rawLoading = false;
     });
+  }
+
+  /* 待确认数量。
+     采集端识别完会发系统通知，但 MIUI 对「非应用商店安装」的 App 默认关闭通知
+     （appops 里 Uid mode 是 ignore，adb 改不了），用户很可能一条都看不到。
+     所以主要路径放在 App 里：一进账本就顶一条「有 N 笔没确认」，点一下直达。
+
+     30 秒内不重复拉：账本页每次 render 都请求一次太浪费，隧道往返不便宜。 */
+  var _pendingN = 0;
+  var _pendingAt = 0;
+
+  function refreshPendingCount(force) {
+    if (!auth || !auth.token) { _pendingN = 0; return; }
+    if (!force && Date.now() - _pendingAt < 30000) return;
+    _pendingAt = Date.now();
+    apiFetch("/auto/pending?limit=50", {}).then(function (r) {
+      if (!r.ok || !r.body) return;
+      var n = (r.body.items || []).length;
+      if (n === _pendingN) return;
+      _pendingN = n;
+      var h = parseHash();
+      if (h.view === "book" && !Number(h.params.id || 0)) render();
+    }).catch(function () {});
+  }
+
+  /* 待确认被处理掉一条就减一，不用等下一次轮询 */
+  function bumpPending(delta) {
+    _pendingN = Math.max(0, _pendingN + delta);
   }
 
   function markRawDone(id, status) {
@@ -5327,4 +5365,6 @@
     }).catch(function () { /* 记不上就算了，不影响记账 */ });
   }
   pingVisit();
+  /* 登录态在的时候顺手看一眼有没有待确认，进 App 首页就能看到提示条 */
+  setTimeout(function () { refreshPendingCount(true); }, 1500);
 })();
