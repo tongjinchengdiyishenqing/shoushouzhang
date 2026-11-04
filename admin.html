@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>长流 · 运营看板</title>
+<style>
+  :root{
+    --bg:#071b29; --panel:#0e2f45; --panel2:#123a54; --line:#1d4a67;
+    --txt:#eaf7fd; --dim:#8fb9cc; --accent:#4FB3DE; --good:#5BC49A; --warn:#e0a83c; --bad:#e07070;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{padding:0 0 40px}
+  .wrap{max-width:760px;margin:0 auto;padding:0 14px}
+
+  header{padding:22px 0 14px}
+  h1{margin:0;font-size:21px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--good);display:inline-block}
+  .dot.off{background:var(--bad)}
+
+  .bar{display:flex;gap:8px;align-items:center;margin:12px 0 4px;flex-wrap:wrap}
+  button{font-family:inherit;font-size:13.5px;font-weight:700;border:0;border-radius:999px;
+    padding:9px 15px;background:var(--panel2);color:var(--txt);cursor:pointer;transition:.15s}
+  button:active{transform:scale(.96)}
+  button.on{background:var(--accent);color:#06202e}
+  button.ghost{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line);color:var(--dim)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+  .grid.g3{grid-template-columns:1fr 1fr 1fr}
+  .card{background:var(--panel);border-radius:16px;padding:14px}
+  .k{font-size:12px;color:var(--dim);letter-spacing:.02em}
+  .v{font-size:26px;font-weight:800;letter-spacing:-.8px;margin-top:5px;font-variant-numeric:tabular-nums}
+  .v.sm{font-size:20px}
+  .d{font-size:11.5px;color:var(--dim);margin-top:3px}
+  .d b{color:var(--good);font-weight:700}
+  .d b.warn{color:var(--warn)}
+
+  .sec{margin:22px 0 10px;font-size:13px;font-weight:700;color:var(--dim);letter-spacing:.06em}
+
+  /* 14 天柱状图 */
+  .chart{background:var(--panel);border-radius:16px;padding:16px 12px 10px}
+  .chart .tabs{display:flex;gap:6px;margin-bottom:14px;padding:0 4px}
+  .chart .tabs button{padding:6px 12px;font-size:12.5px}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:112px}
+  .bcol{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px;min-width:0}
+  .bar{width:100%;background:linear-gradient(180deg,var(--accent),#1E6E96);border-radius:4px 4px 2px 2px;min-height:2px;transition:height .3s}
+  .bar.zero{background:var(--line)}
+  .bl{font-size:9.5px;color:var(--dim);white-space:nowrap;transform:rotate(-45deg);transform-origin:center;height:14px}
+  .chart .peak{font-size:12px;color:var(--dim);margin:8px 4px 0}
+
+  /* 列表 */
+  .list{background:var(--panel);border-radius:16px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .av{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;
+    justify-content:center;font-weight:800;font-size:14px;color:#06202e;background:var(--accent)}
+  .body{flex:1;min-width:0}
+  .nm{font-size:14.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{font-size:11.5px;color:var(--dim);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tag{font-size:11px;padding:3px 8px;border-radius:999px;background:var(--panel2);color:var(--dim);flex:0 0 auto}
+  .tag.new{background:rgba(91,196,154,.16);color:var(--good)}
+
+  .empty{padding:26px 14px;text-align:center;color:var(--dim);font-size:13.5px}
+
+  /* 登录 */
+  .login{max-width:380px;margin:14vh auto 0;padding:0 20px;text-align:center}
+  .login h1{font-size:22px;margin-bottom:6px}
+  .login p{color:var(--dim);font-size:13.5px;margin:0 0 20px}
+  .login input{width:100%;padding:14px 16px;border-radius:14px;border:0;background:var(--panel);
+    color:var(--txt);font-size:16px;font-family:inherit;outline:none;text-align:center;letter-spacing:.06em}
+  .login input::placeholder{color:var(--dim);letter-spacing:0}
+  .login button{width:100%;margin-top:12px;padding:14px;font-size:15px}
+  .err{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
+
+  .foot{color:var(--dim);font-size:11.5px;text-align:center;margin-top:26px;line-height:1.7}
+  .foot code{background:var(--panel);padding:1px 6px;border-radius:5px}
+  .hide{display:none!important}
+</style>
+</head>
+<body>
+
+<div id="login" class="login hide">
+  <h1>长流 · 运营看板</h1>
+  <p>输入看板钥匙（后端 .env 里的 ADMIN_KEY）</p>
+  <input id="key" type="password" placeholder="看板钥匙" autocomplete="off">
+  <button id="enter">进入</button>
+  <div class="err" id="err"></div>
+</div>
+
+<div id="app" class="wrap hide">
+  <header>
+    <h1>长流 · 运营看板</h1>
+    <div class="sub"><span class="dot" id="dot"></span><span id="stamp">连接中…</span></div>
+    <div class="bar">
+      <button id="refresh">刷新</button>
+      <button id="auto" class="on">自动刷新 10s</button>
+      <button id="logout" class="ghost">换钥匙</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="k">注册用户</div><div class="v" id="u_total">–</div>
+      <div class="d">今天 <b id="u_today">0</b> · 7 天 <b id="u_week">0</b></div></div>
+    <div class="card"><div class="k">活跃设备</div><div class="v" id="dev_today">–</div>
+      <div class="d">今天有请求 · 7 天 <b id="dev_week">0</b></div></div>
+    <div class="card"><div class="k">今日访问 UV</div><div class="v" id="pv_uv">–</div>
+      <div class="d">累计打开 <b id="pv_total">0</b> 次</div></div>
+    <div class="card"><div class="k">自动识别</div><div class="v" id="auto_total">–</div>
+      <div class="d">今天 <b id="auto_today">0</b> · 待确认 <b class="warn" id="auto_pending">0</b></div></div>
+  </div>
+
+  <div class="grid g3">
+    <div class="card"><div class="k">广场帖子</div><div class="v sm" id="post_total">–</div><div class="d">今天 <b id="post_today">0</b></div></div>
+    <div class="card"><div class="k">投票</div><div class="v sm" id="vote_total">–</div><div class="d">今天 <b id="vote_today">0</b></div></div>
+    <div class="card"><div class="k">账本同步</div><div class="v sm" id="sync_total">–</div><div class="d" id="sync_size">–</div></div>
+  </div>
+
+  <div class="sec">近 14 天</div>
+  <div class="chart">
+    <div class="tabs">
+      <button data-m="users" class="on">新用户</button>
+      <button data-m="auto">自动识别</button>
+      <button data-m="posts">广场发帖</button>
+      <button data-m="pv">页面访问</button>
+    </div>
+    <div class="bars" id="bars"></div>
+    <div class="peak" id="peak"></div>
+  </div>
+
+  <div class="sec">最近注册</div>
+  <div class="list" id="users"><div class="empty">加载中…</div></div>
+
+  <div class="sec">最近动静</div>
+  <div class="list" id="feed"><div class="empty">加载中…</div></div>
+
+  <div class="foot">
+    钥匙存在这台设备本地，换纸就要重新输。<br>
+    后端没配 <code>ADMIN_KEY</code> 时这页打不开任何数据。
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var API = (function () {
+    var h = location.hostname;
+    // 看板部署在 book.* 上，接口在 v.* 上；本地调试走 127.0.0.1
+    if (h === "book.yutiqu.eu.cc") return "https://v.yutiqu.eu.cc/api/v1";
+    if (h === "127.0.0.1" || h === "localhost") return "http://127.0.0.1:8011/api/v1";
+    return "https://v.yutiqu.eu.cc/api/v1";
+  })();
+
+  var KEY_STORE = "cl.admin.key";
+  var $ = function (id) { return document.getElementById(id); };
+  var timer = null, autoOn = true, metric = "users", last = null, busy = false;
+
+  function key() {
+    try { return localStorage.getItem(KEY_STORE) || ""; } catch (e) { return ""; }
+  }
+  function setKey(v) {
+    try { v ? localStorage.setItem(KEY_STORE, v) : localStorage.removeItem(KEY_STORE); } catch (e) {}
+  }
+
+  function api(path) {
+    return fetch(API + path, { headers: { "X-Admin-Key": key() }, cache: "no-store" })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = null;
+          try { j = t ? JSON.parse(t) : null; } catch (e) {}
+          if (r.status === 403 || r.status === 404) {
+            var e = new Error("钥匙不对或看板已关闭");
+            e.badKey = true;
+            throw e;
+          }
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return j;
+        });
+      });
+  }
+
+  function agoText(iso) {
+    if (!iso) return "—";
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return "—";
+    var d = Date.now() - t;
+    if (d < 0) d = 0;
+    if (d < 60000) return "刚刚";
+    if (d < 3600000) return Math.floor(d / 60000) + " 分钟前";
+    if (d < 86400000) return Math.floor(d / 3600000) + " 小时前";
+    return Math.floor(d / 86400000) + " 天前";
+  }
+
+  function bjStamp(iso) {
+    if (!iso) return "";
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return "";
+    var d = new Date(t + 8 * 3600 * 1000);   // 后端给的是 UTC，显示成北京时间
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return d.getUTCHours() + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds());
+  }
+
+  function setText(id, v) {
+    var el = $(id);
+    if (el) el.textContent = (v === undefined || v === null) ? "–" : v;
+  }
+
+  function fmtBytes(n) {
+    if (!n) return "0 KB";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1024 / 1024).toFixed(1) + " MB";
+  }
+
+  function paintChart(trend) {
+    var vals = trend.map(function (d) { return d[metric] || 0; });
+    var max = Math.max.apply(null, vals.concat([1]));
+    var sum = vals.reduce(function (a, b) { return a + b; }, 0);
+    var html = "";
+    for (var i = 0; i < trend.length; i++) {
+      var v = vals[i];
+      var h = max > 0 ? Math.round((v / max) * 100) : 0;
+      html += '<div class="bcol" title="' + trend[i].day + "：" + v + '">' +
+        '<div class="bar' + (v ? "" : " zero") + '" style="height:' + (v ? Math.max(h, 4) : 2) + '%"></div>' +
+        '<div class="bl">' + trend[i].day + "</div></div>";
+    }
+    $("bars").innerHTML = html;
+    var names = { users: "新用户", auto: "自动识别", posts: "广场发帖", pv: "页面访问" };
+    $("peak").textContent = "14 天共 " + sum + " · 单日最高 " + max + "（" + names[metric] + "）";
+  }
+
+  function paintUsers(items) {
+    if (!items.length) { $("users").innerHTML = '<div class="empty">还没有人注册</div>'; return; }
+    var now = Date.now();
+    $("users").innerHTML = items.map(function (u) {
+      var isNew = u.createdAt && (now - Date.parse(u.createdAt) < 86400000);
+      var ch = (u.username || "?").slice(0, 1).toUpperCase();
+      return '<div class="row"><div class="av">' + ch + "</div>" +
+        '<div class="body"><div class="nm">' + esc(u.username) + "</div>" +
+        '<div class="meta">#' + u.id + " · 注册 " + agoText(u.createdAt) +
+        (u.lastSeenAt ? " · 最后活动 " + agoText(u.lastSeenAt) : "") + "</div></div>" +
+        '<span class="tag' + (isNew ? " new" : "") + '">' + (u.devices || 0) + " 台</span></div>";
+    }).join("");
+  }
+
+  function paintFeed(items) {
+    if (!items.length) { $("feed").innerHTML = '<div class="empty">还没有动静</div>'; return; }
+    var icon = { register: "👤", post: "🗳", auto: "📷", sync: "🔄" };
+    $("feed").innerHTML = items.map(function (e) {
+      return '<div class="row"><div class="av" style="font-size:15px">' + (icon[e.kind] || "·") + "</div>" +
+        '<div class="body"><div class="nm" style="font-weight:600;font-size:13.5px">' + esc(e.text) + "</div>" +
+        '<div class="meta">' + agoText(e.at) + " · " + bjStamp(e.at) + "</div></div></div>";
+    }).join("");
+  }
+
+  function esc(s) {
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function load() {
+    if (busy) return;
+    busy = true;
+    api("/admin/stats").then(function (s) {
+      last = s;
+      $("dot").className = "dot";
+      $("stamp").textContent = "更新于 " + bjStamp(s.at) + "（北京时间）";
+      setText("u_total", s.users.total);
+      setText("u_today", s.users.today);
+      setText("u_week", s.users.week);
+      setText("dev_today", s.devices.activeToday);
+      setText("dev_week", s.devices.activeWeek);
+      setText("pv_uv", s.pageview.uvToday);
+      setText("pv_total", s.pageview.pvTotal);
+      setText("auto_total", s.auto.total);
+      setText("auto_today", s.auto.today);
+      setText("auto_pending", s.auto.pending);
+      setText("post_total", s.decide.posts);
+      setText("post_today", s.decide.postsToday);
+      setText("vote_total", s.decide.votes);
+      setText("vote_today", s.decide.votesToday);
+      setText("sync_total", s.sync.blobs);
+      setText("sync_size", fmtBytes(s.sync.bytes) + " · 最近 " + agoText(s.sync.lastAt));
+      paintChart(s.trend || []);
+      return Promise.all([api("/admin/users?limit=20"), api("/admin/feed?limit=25")]);
+    }).then(function (res) {
+      paintUsers((res[0] && res[0].items) || []);
+      paintFeed((res[1] && res[1].items) || []);
+      busy = false;
+    }).catch(function (e) {
+      busy = false;
+      $("dot").className = "dot off";
+      $("stamp").textContent = "拉不到数据：" + (e.message || e);
+      if (e.badKey) { showLogin("钥匙不对，或后端没配 ADMIN_KEY"); }
+    });
+  }
+
+  function start() {
+    stop();
+    if (autoOn) timer = setInterval(load, 10000);
+    load();
+  }
+  function stop() {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  function showLogin(msg) {
+    stop();
+    $("app").classList.add("hide");
+    $("login").classList.remove("hide");
+    $("err").textContent = msg || "";
+    setTimeout(function () { $("key").focus(); }, 50);
+  }
+  function showApp() {
+    $("login").classList.add("hide");
+    $("app").classList.remove("hide");
+    start();
+  }
+
+  $("enter").addEventListener("click", function () {
+    var v = ($("key").value || "").trim();
+    if (!v) { $("err").textContent = "先填钥匙"; return; }
+    setKey(v);
+    api("/admin/stats").then(function () { showApp(); })
+      .catch(function (e) {
+        setKey("");
+        $("err").textContent = e.badKey ? "钥匙不对，看后端的 ADMIN_KEY" : ("连不上：" + e.message);
+      });
+  });
+  $("key").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") $("enter").click();
+  });
+
+  $("refresh").addEventListener("click", function () { load(); });
+  $("auto").addEventListener("click", function () {
+    autoOn = !autoOn;
+    $("auto").className = autoOn ? "on" : "ghost";
+    $("auto").textContent = autoOn ? "自动刷新 10s" : "自动刷新已关";
+    autoOn ? start() : stop();
+  });
+  $("logout").addEventListener("click", function () {
+    setKey("");
+    showLogin("");
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".chart .tabs button"), function (b) {
+    b.addEventListener("click", function () {
+      metric = b.getAttribute("data-m");
+      Array.prototype.forEach.call(document.querySelectorAll(".chart .tabs button"), function (x) {
+        x.className = x === b ? "on" : "";
+      });
+      if (last) paintChart(last.trend || []);
+    });
+  });
+
+  // 页面切到后台就停轮询，省手机电量和流量
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) stop();
+    else if (key()) start();
+  });
+
+  if (key()) showApp(); else showLogin("");
+})();
+</script>
+</body>
+</html>
