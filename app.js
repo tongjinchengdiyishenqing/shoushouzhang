@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold2";
+  var BUILD_ID = "20261104-hold3";
 
   var DEFAULTS = {
     wallets: [
@@ -1479,11 +1479,6 @@
           '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
         '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
           '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
-      "</div>" +
-      '<div class="card ov-card"><div class="card-title">口径</div>' +
-        '<div class="list-row"><span>余额</span><span class="hint">期初 + 收入 − 支出</span></div>' +
-        '<div class="list-row"><span>转账</span><span class="hint">账户间搬移，不计收支</span></div>' +
-        '<div class="list-row"><span>净资产</span><span class="hint">账户余额 + 持仓市值</span></div>' +
       "</div>"
     );
   }
@@ -5592,7 +5587,12 @@
     else if (act === "sdDivSync") { startDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivConfirm") { commitDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivCancel") { stockState().sync = null; render(); }
-    else if (act === "goHoldingNew") { location.hash = "#/holdingnew"; }
+    else if (act === "goHoldingNew") {
+      /* 每次进来都是空表单：残留草稿会让人照错的数字再加一笔 */
+      ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = ""; ui.hFee = "";
+      _nameLooked = ""; _autoName = "";
+      location.hash = "#/holdingnew";
+    }
     else if (act === "addHolding") addHolding();
     else if (act === "hFeeQuick") {
       /* 快捷手续费：写进输入框并切高亮，只重画算账块 */
