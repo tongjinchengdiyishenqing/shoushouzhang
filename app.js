@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold8";
+  var BUILD_ID = "20261104-hold9";
 
   var DEFAULTS = {
     wallets: [
@@ -880,6 +880,7 @@
     hCost: "",
     hFee: "",
     hDay: ymd(new Date()),
+    editHoldingId: "",
     /* 报价拉取状态：idle / loading / ok / fail */
     quoteState: "idle",
     quoteFailAt: 0,
@@ -1787,7 +1788,7 @@
           var pnlUp = x.pnl > 0, pnlDown = x.pnl < 0;
           /* 填了手续费的显示「摊薄@」= 含费真实单价，没填就显示成交价 */
           var unit = x.feeCents ? "摊薄@" + fmtPrice(x.avgCost) : "@" + fmtPrice(x.costCents);
-          return '<div class="hrow" data-act="delHolding" data-id="' + esc(x.id) + '">' +
+          return '<div class="hrow" data-act="openStock" data-code="' + esc(x.code) + '">' +
             '<div class="glyph">' + iconOf("w_fund") + "</div>" +
             '<div class="hmain">' +
               '<div class="hline">' +
@@ -1796,7 +1797,7 @@
               "</div>" +
               '<div class="hline">' +
                 '<span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股 " + unit + "</span>" +
-                '<span class="hrow-act" data-act="openStock" data-code="' + esc(x.code) + '">评分 ›</span>' +
+                '<span class="hrow-act">详情 ›</span>' +
                 '<span class="pnl ' + (pnlUp ? "up" : pnlDown ? "down" : "") + '">' +
                   (x.stale ? "待更新" :
                     (x.pnl >= 0 ? "+" : "-") + fmtMoneyShort(x.pnl) +
@@ -1835,8 +1836,8 @@
         "<p>不会多开一行：股数相加、成交价按股数加权平均、手续费累加，行上显示「摊薄@」就是合并后的真实单价；买入日期取最早那次。</p>" +
         "<b>现价从哪来</b>" +
         "<p>点 hero 上的「刷新」拉最新行情；拉不到就拿成本价顶着，盈亏显示「待更新」，不会乱算。</p>" +
-        "<b>想删一只</b>" +
-        "<p>直接点那一行，确认后删除。已记过的分红流水不受影响。</p>" +
+        "<b>点一只进去能干什么</b>" +
+        "<p>看股息评分、日 K、到手股息率；上面一排按钮可以改股数/成本/手续费/买入日期，也能按持仓把分红记进账本。</p>" +
       "</div>";
 
     // 渲染完再异步拉报价，避免在 render 栈里同步递归
@@ -1890,7 +1891,10 @@
     if (btn) btn.classList.toggle("disabled", !hCalc().ok);
   }
 
-  function viewHoldingNew() {
+  /* mode = "new" | "edit"：新增和修改共用同一套三步表单。
+     区别只有：标题、代码能不能改、底部按钮文案，以及修改页多一个删除入口。 */
+  function holdFormHtml(mode) {
+    var editing = mode === "edit";
     var code = normCode(ui.hCode);
     var picked = /^[0-9]{6}\.(SH|SZ|BJ)$/.test(code);
     var feeNow = parseFloat(ui.hFee);
@@ -1902,19 +1906,25 @@
         (v ? "¥" + v : "没手续费") + "</span>";
     }).join("");
 
-    return '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>添加持仓</h1><div class="icon-btn"></div></div>' +
+    return '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>' +
+        (editing ? "修改持仓" : "添加持仓") + '</h1><div class="icon-btn"></div></div>' +
 
       '<div class="card ov-card">' +
-        '<div class="card-title"><span class="step-no">1</span>买的是哪只</div>' +
-        '<div class="field-row"><label>代码</label>' +
-          '<input data-act="hCode" placeholder="输代码或名称，如 600000 / 浦发" value="' + esc(ui.hCode) + '">' +
-        "</div>" +
-        '<div class="ss-list"></div>' +
-        '<div class="hsel' + (picked ? " on" : "") + '">' +
-          (picked
-            ? '<span class="hsel-nm">' + esc(ui.hName || code) + '</span><span class="hsel-code">' + esc(code) + "</span>"
-            : '<span class="hsel-tip">还没选股票 · 上面输代码会自动带出名称</span>') +
-        "</div>" +
+        '<div class="card-title"><span class="step-no">1</span>' +
+          (editing ? "改的是哪只" : "买的是哪只") + "</div>" +
+        (editing
+          ? '<div class="hsel on"><span class="hsel-nm">' + esc(ui.hName || code) +
+            '</span><span class="hsel-code">' + esc(code) + "</span></div>" +
+            '<div class="fine-inline">代码定死了不能改。要换成另一只，回持仓页把它删掉再添加。</div>'
+          : '<div class="field-row"><label>代码</label>' +
+              '<input data-act="hCode" placeholder="输代码或名称，如 600000 / 浦发" value="' + esc(ui.hCode) + '">' +
+            "</div>" +
+            '<div class="ss-list"></div>' +
+            '<div class="hsel' + (picked ? " on" : "") + '">' +
+              (picked
+                ? '<span class="hsel-nm">' + esc(ui.hName || code) + '</span><span class="hsel-code">' + esc(code) + "</span>"
+                : '<span class="hsel-tip">还没选股票 · 上面输代码会自动带出名称</span>') +
+            "</div>") +
       "</div>" +
 
       '<div class="card ov-card">' +
@@ -1941,7 +1951,9 @@
         '<div class="hcalc">' + hCalcHtml() + "</div>" +
       "</div>" +
 
-      '<button class="btn-primary' + (hCalc().ok ? "" : " disabled") + '" data-act="addHolding">确认添加</button>' +
+      '<button class="btn-primary' + (hCalc().ok ? "" : " disabled") + '" data-act="' +
+        (editing ? "saveHoldingEdit" : "addHolding") + '">' +
+        (editing ? "保存修改" : "确认添加") + "</button>" +
 
       '<div class="hold-note fine">' +
         "<b>股数</b><p>填券商回单上的实际成交股数，零股就填零股（比如 300）。</p>" +
@@ -1950,6 +1962,18 @@
         "<b>买入日期</b><p>填券商回单上的成交日。分红到账时按它算持有天数，决定这笔分红扣多少税。</p>" +
         "<b>同一只再加一次</b><p>不会开新行：股数相加，成交价按股数加权，手续费累加，日期取最早那次（算持有期从第一次买入起）。</p>" +
       "</div>";
+  }
+
+  function viewHoldingNew() {
+    return holdFormHtml("new");
+  }
+
+  function viewHoldingEdit() {
+    return holdFormHtml("edit") +
+      '<button class="btn-ghost sd-del-hold" data-act="delHolding" data-id="' +
+        esc(ui.editHoldingId) + '">删除这只持仓</button>' +
+      '<div class="fine-inline" style="text-align:center;padding:0 22px 26px">' +
+        "删掉不会动已经记过的分红流水；想改数字用上面的「保存修改」。</div>";
   }
 
 
@@ -1963,7 +1987,8 @@
   function stockState() {
     if (!ui.stock) {
       ui.stock = { code: "", data: null, divs: null, loading: false,
-      quote: null, quoteAt: "", quoteErr: "", error: "", at: 0, sync: null, walletId: "" };
+      quote: null, quoteAt: "", quoteErr: "", error: "", at: 0, sync: null, walletId: "",
+      kline: null, klineCode: "", klineLoading: false, klineErr: "", klineAt: 0 };
     }
     return ui.stock;
   }
@@ -1994,6 +2019,106 @@
       .catch(function () {
         if (stockState().code === code) stq.quoteErr = "行情拉不到";
       });
+  }
+
+
+  /* ---------- 日 K ----------
+     数据来自后端 /kline（第一次看某只股票时后端会按需补历史日线，之后读库）。
+     不引图表库：一张 60KB 的图换 200KB 的 JS 不划算，手机关网时还会白屏。 */
+  function loadKline(code, force) {
+    var st = stockState();
+    if (!code) return;
+    if (!force && st.kline && st.klineCode === code) return;
+    if (st.klineLoading) return;
+    st.klineLoading = true;
+    st.klineCode = code;
+    st.klineErr = "";
+    render();
+    apiFetch("/kline/" + encodeURIComponent(code) + "?days=120", {})
+      .then(function (r) {
+        if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
+        return r.body;
+      })
+      .then(function (bars) {
+        st.klineLoading = false;
+        if (stockState().code !== code) return;
+        st.kline = Array.isArray(bars) ? bars : [];
+        st.klineAt = Date.now();
+        render();
+      })
+      .catch(function (e) {
+        st.klineLoading = false;
+        if (stockState().code !== code) return;
+        st.klineErr = (e && e.message) || "K 线拉不到";
+        render();
+      });
+  }
+
+  /* 蜡烛图：纯 SVG。涨用 --pos 绿、跌用 --neg 红，跟 App 其他地方保持一致。 */
+  function klineSvg(bars) {
+    var W = 340, H = 148, L = 4, R = 4, T = 10, B = 16;
+    var n = bars.length;
+    var hi = [], lo = [], cs = [];
+    for (var i = 0; i < n; i++) {
+      hi.push(Number(bars[i].high) || 0);
+      lo.push(Number(bars[i].low) || 0);
+      cs.push(Number(bars[i].close) || 0);
+    }
+    var realMax = Math.max.apply(null, hi), realMin = Math.min.apply(null, lo);
+    if (!(realMax > 0) || !(realMin > 0) || realMax === realMin) return "";
+    var pad = (realMax - realMin) * 0.06;
+    var max = realMax + pad, min = realMin - pad;
+    var iw = W - L - R, ih = H - T - B;
+    function X(i) { return L + (i + 0.5) * iw / n; }
+    function Y(v) { return T + (max - v) / (max - min) * ih; }
+    var slot = iw / n, bw = Math.max(1.1, Math.min(5.5, slot * 0.62));
+    var out = [];
+
+    [max, (max + min) / 2, min].forEach(function (v, k) {
+      var y = Y(v).toFixed(1);
+      out.push('<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y +
+        '" stroke="#E4EFF5" stroke-width="1"' + (k === 1 ? ' stroke-dasharray="3 3"' : "") + "/>");
+      out.push('<text x="' + (W - R) + '" y="' + (Number(y) - 2).toFixed(1) +
+        '" text-anchor="end" font-size="8.5" fill="#767680">' + v.toFixed(2) + "</text>");
+    });
+
+    for (var j = 0; j < n; j++) {
+      var o = Number(bars[j].open) || cs[j];
+      var c = cs[j];
+      var up = c >= o;
+      var col = up ? "#1e7a58" : "#c0453c";
+      var x = X(j).toFixed(1);
+      out.push('<line x1="' + x + '" y1="' + Y(hi[j]).toFixed(1) + '" x2="' + x +
+        '" y2="' + Y(lo[j]).toFixed(1) + '" stroke="' + col + '" stroke-width="1"/>');
+      var y1 = Y(Math.max(o, c)), y2 = Y(Math.min(o, c));
+      out.push('<rect x="' + (X(j) - bw / 2).toFixed(1) + '" y="' + y1.toFixed(1) +
+        '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, y2 - y1).toFixed(1) +
+        '" fill="' + col + '" rx="0.4"/>');
+    }
+
+    var pts = [], sum = 0;
+    for (var k = 0; k < n; k++) {
+      sum += cs[k];
+      if (k >= 20) sum -= cs[k - 20];
+      if (k >= 19) pts.push([X(k), Y(sum / 20)]);
+    }
+    if (pts.length > 1) {
+      out.push('<path d="' + pts.map(function (p, idx) {
+        return (idx ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
+      }).join(" ") + '" fill="none" stroke="#1E6E96" stroke-width="1.3" opacity="0.92"/>');
+    }
+
+    out.push('<text x="' + L + '" y="' + (H - 4) + '" font-size="8.5" fill="#767680">' + esc(bars[0].trade_date) + "</text>");
+    out.push('<text x="' + (W - R) + '" y="' + (H - 4) +
+      '" font-size="8.5" fill="#767680" text-anchor="end">' + esc(bars[n - 1].trade_date) + "</text>");
+
+    var maNow = pts.length ? (sum / Math.min(20, n)).toFixed(2) : "";
+    return '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>" +
+      '<div class="kl-legend">' +
+        '<span>近 ' + n + " 个交易日</span>" +
+        "<span>最高 " + realMax.toFixed(2) + " · 最低 " + realMin.toFixed(2) + "</span>" +
+        '<span class="kl-ma">MA20 ' + maNow + "</span>" +
+      "</div>";
   }
 
   function loadStockDetail(code, force) {
@@ -2167,17 +2292,28 @@
 
     if (!code) return head + '<div class="empty">没带股票代码</div>';
     if (!d && !st.loading && !st.error) setTimeout(function () { loadStockDetail(code); }, 0);
+    setTimeout(function () { loadKline(code); }, 0);
 
     var hs = (db.holdings || []).filter(function (h) { return h.code === code; })[0];
     var body = "";
 
+    /* 动作条跟数据无关：后端挂了、行情拉不到，也要能改自己的持仓。
+       所以它放在「没数据」的分支之前先算出来。 */
+    var acts = '<div class="sd-acts">' +
+      (hs
+        ? '<span class="sd-act" data-act="editHolding" data-id="' + esc(hs.id) + '">修改持仓</span>'
+        : '<span class="sd-act" data-act="addThisStock" data-code="' + esc(code) +
+          '" data-name="' + esc((d && d.name) || "") + '">加入持仓</span>') +
+      '<span class="sd-act" data-act="goHoldings">全部持仓</span>' +
+      "</div>";
+
     if (st.error && !d) {
       body = '<div class="empty">' + esc(st.error) +
         '<div class="empty-act" data-act="sdReload" data-code="' + esc(code) + '">重试</div></div>';
-      return head + body;
+      return head + acts + body;
     }
     if (!d) {
-      return head + '<div class="dc-skel"><i></i><i></i><i></i></div>';
+      return head + acts + '<div class="dc-skel"><i></i><i></i><i></i></div>';
     }
 
     /* --- 价格 + 我的持仓 ---
@@ -2213,6 +2349,7 @@
       ? '<span class="sd-live"><i></i>实时' + (qtShort ? " " + esc(qtShort) : "") + "</span>" + chgTxt
       : '<span class="sd-close">收盘价' + (d.score_date ? " · " + esc(d.score_date) : "") + "</span>";
 
+    body += acts;
     body += '<div class="hero sd-hero">' +
       '<div class="label">' + esc(d.name || code) + " " + esc(code) + "</div>" +
       '<div class="big"><span class="cur">¥</span>' + money(priceCents) + "</div>" +
@@ -2254,6 +2391,21 @@
           " · 增速 " + (d.predicted_g != null ? (Number(d.predicted_g) * 100).toFixed(1) + "%" : "—") +
           "（" + esc(d.forecast_source) + (d.forecast_year ? " · " + d.forecast_year : "") + "）</div>"
         : "") +
+    "</div>";
+
+    /* --- 日 K --- */
+    var kl = st.kline, klOk = !!(kl && kl.length >= 5 && st.klineCode === code);
+    body += '<div class="card ov-card">' +
+      '<div class="card-title">日 K</div>' +
+      (klOk
+        ? klineSvg(kl)
+        : (st.klineLoading
+          ? '<div class="sd-note">正在补历史日线…第一次看这只股票会慢一点。</div>'
+          : st.klineErr
+            ? '<div class="sd-note">' + esc(st.klineErr) + ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' +
+              esc(code) + '">重试</span></div>'
+            : '<div class="sd-note">这只还没有日线数据 · <span class="kl-retry" data-act="sdKlineReload" data-code="' +
+              esc(code) + '">拉一次</span></div>')) +
     "</div>";
 
     /* --- 到手股息率：把成本扣掉再说 --- */
@@ -2345,7 +2497,7 @@
       syncBox +
     "</div>";
 
-    return head + body;
+    return head + (hs ? "" : "") + body;
   }
 
   /* ================= 视图：财务全景 ================= */
@@ -4547,6 +4699,7 @@
 
   VIEW_PARENT.stock = "holdings";
   VIEW_PARENT.holdingnew = "holdings";   // 添加持仓退回持仓页
+  VIEW_PARENT.holdingedit = "holdings";  // 修改持仓退回持仓页
 
   function goBack() {
     var v = parseHash().view;
@@ -4627,6 +4780,7 @@
     else if (r.view === "assets") body = viewAssets();
     else if (r.view === "holdings") body = viewHoldings();
     else if (r.view === "holdingnew") body = viewHoldingNew();
+    else if (r.view === "holdingedit") body = viewHoldingEdit();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -4658,7 +4812,8 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
-      : (r.view === "holdings" || r.view === "holdingnew" || r.view === "overview" || r.view === "stock") ? "assets"
+      : (r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
+         r.view === "overview" || r.view === "stock") ? "assets"
       : (r.view === "wallets" || r.view === "tags" || r.view === "config") ? "config"
       : r.view === "search" ? "book"
       : r.view;
@@ -5659,6 +5814,28 @@
     else render();
   }
 
+  function saveHoldingEdit() {
+    var hh = db.holdings.filter(function (x) { return x.id === ui.editHoldingId; })[0];
+    if (!hh) { toast("这只持仓不在了"); location.hash = "#/holdings"; return; }
+    var shares = parseFloat(ui.hShares);
+    var cost = parseFloat(ui.hCost);
+    var fee = parseFloat(ui.hFee);
+    if (!isFinite(fee) || fee < 0) fee = 0;
+    if (!isFinite(shares) || shares <= 0) { toast("股数不对"); return; }
+    if (!isFinite(cost) || cost <= 0) { toast("成交价不对"); return; }
+    var buyDay = String(ui.hDay || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(buyDay)) buyDay = ymd(new Date());
+
+    hh.shares = shares;
+    hh.costCents = Math.round(cost * 100);
+    hh.feeCents = Math.round(fee * 100);
+    hh.buyDay = buyDay;
+    ui.editHoldingId = "";
+    save();
+    toast("已保存");
+    location.hash = "#/holdings";
+  }
+
   function delHolding(id) {
     var h = db.holdings.filter(function (x) { return x.id === id; })[0];
     if (!h) return;
@@ -5670,8 +5847,11 @@
       ok: "删除", danger: true,
       onOK: function () {
         db.holdings = db.holdings.filter(function (x) { return x.id !== id; });
+        ui.editHoldingId = "";
         save();
-        render();
+        /* 在修改页删的，删完就别留在空表单上了 */
+        if (parseHash().view === "holdingedit") location.hash = "#/holdings";
+        else render();
         toast("已删除");
       }
     });
@@ -5834,6 +6014,34 @@
       location.hash = "#/holdingnew";
     }
     else if (act === "addHolding") addHolding();
+    else if (act === "saveHoldingEdit") saveHoldingEdit();
+    else if (act === "editHolding") {
+      /* 点「修改持仓」：把这只的数字预填进表单，日期没记过就默认今天 */
+      var hh1 = db.holdings.filter(function (x) { return x.id === id; })[0];
+      if (!hh1) { toast("这只持仓不在了"); return; }
+      ui.editHoldingId = hh1.id;
+      ui.hCode = hh1.code;
+      ui.hName = hh1.name || hh1.code;
+      ui.hShares = fmtShares(hh1.shares);
+      ui.hCost = fmtPrice(hh1.costCents);
+      ui.hFee = hh1.feeCents ? money(hh1.feeCents) : "";
+      ui.hDay = hh1.buyDay || ymd(new Date());
+      _nameLooked = hh1.code;
+      _autoName = hh1.name || "";
+      location.hash = "#/holdingedit";
+    }
+    else if (act === "addThisStock") {
+      /* 个股页发现还没买：把代码名称带进添加表单，省得再搜一遍 */
+      ui.editHoldingId = "";
+      ui.hCode = el.getAttribute("data-code") || "";
+      ui.hName = el.getAttribute("data-name") || "";
+      ui.hShares = ""; ui.hCost = ""; ui.hFee = "";
+      ui.hDay = ymd(new Date());
+      _nameLooked = ui.hCode;
+      _autoName = ui.hName;
+      location.hash = "#/holdingnew";
+    }
+    else if (act === "sdKlineReload") loadKline(el.getAttribute("data-code") || "", true);
     else if (act === "hFeeQuick") {
       /* 快捷手续费：写进输入框并切高亮，只重画算账块 */
       ui.hFee = String(el.getAttribute("data-v") || "0");
