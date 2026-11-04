@@ -1,7 +1,7 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2",
-  "apk": "changliu-collector-1.2.apk",
+  "versionCode": 4,
+  "versionName": "1.3",
+  "apk": "changliu-collector-1.3.apk",
   "at": "2026-11-04",
-  "notes": "应用内一键更新（以后不用再手动装包）；持仓可以填买入日期；详情页与评论加载更顺。"
+  "notes": "自动记账提速：付完 1 秒内出结果；截图前不再白等 0.6 秒；同屏冷却 10 秒缩到 2.2 秒；空白截图会自动补拍。"
 }
