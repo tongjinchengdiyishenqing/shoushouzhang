@@ -30,6 +30,9 @@
 
   var STORE_KEY = "sz.book.v5";
   var APP_VERSION = "1.0.0";
+  /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
+     用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
+  var BUILD_ID = "20261104-hold2";
 
   var DEFAULTS = {
     wallets: [
@@ -863,6 +866,7 @@
     hName: "",
     hShares: "",
     hCost: "",
+    hFee: "",
     /* 报价拉取状态：idle / loading / ok / fail */
     quoteState: "idle",
     quoteFailAt: 0,
@@ -1583,10 +1587,14 @@
     var list = (db.holdings || []).map(function (h) {
       var price = h.priceCents != null ? h.priceCents : h.costCents;
       var mv = Math.round(h.shares * price);
-      var cost = Math.round(h.shares * h.costCents);
+      /* 成本要把手续费算进去：花了多少钱就按多少钱算成本，
+         否则卖出时算出来的收益率会虚高（券商的钱也是钱）。 */
+      var fee = Math.round(h.feeCents || 0);
+      var cost = Math.round(h.shares * h.costCents) + fee;
       return {
         id: h.id, code: h.code, name: h.name || h.code, shares: h.shares,
-        costCents: h.costCents, priceCents: price,
+        costCents: h.costCents, feeCents: fee, priceCents: price,
+        avgCost: h.shares > 0 ? Math.round(cost / h.shares) : h.costCents,
         mv: mv, cost: cost, pnl: mv - cost,
         pnlPct: cost ? ((mv - cost) / cost) * 100 : 0,
         stale: h.priceCents == null
@@ -1763,6 +1771,8 @@
     var rows = s.list.length
       ? s.list.map(function (x) {
           var pnlUp = x.pnl > 0, pnlDown = x.pnl < 0;
+          /* 填了手续费的显示「摊薄@」= 含费真实单价，没填就显示成交价 */
+          var unit = x.feeCents ? "摊薄@" + fmtPrice(x.avgCost) : "@" + fmtPrice(x.costCents);
           return '<div class="hrow" data-act="delHolding" data-id="' + esc(x.id) + '">' +
             '<div class="glyph">' + iconOf("w_fund") + "</div>" +
             '<div class="hmain">' +
@@ -1771,7 +1781,7 @@
                 '<span class="mv">' + cash(x.mv) + "</span>" +
               "</div>" +
               '<div class="hline">' +
-                '<span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股@" + fmtPrice(x.costCents) + "</span>" +
+                '<span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股 " + unit + "</span>" +
                 '<span class="hrow-act" data-act="openStock" data-code="' + esc(x.code) + '">评分 ›</span>' +
                 '<span class="pnl ' + (pnlUp ? "up" : pnlDown ? "down" : "") + '">' +
                   (x.stale ? "待更新" :
@@ -1796,19 +1806,19 @@
           '<span class="quote-refresh" data-act="refreshQuotes">刷新</span></div>' : "") +
       "</div>";
 
+    /* 录入表单收进了独立二级页（#/holdingnew）：
+       原来整个表单摊在明细下面，手机上要滚很久才能填，还容易和明细看串。 */
     var form =
-      '<div class="card ov-card"><div class="card-title">加一只</div>' +
-        '<div class="field-row"><label>代码</label><input data-act="hCode" placeholder="输入代码或名称搜，如 茅台" value="' + esc(ui.hCode) + '"></div>' +
-        '<div class="ss-list"></div>' +
-        '<div class="field-row"><label>名称</label><input data-act="hName" placeholder="填代码后自动带出" value="' + esc(ui.hName) + '">' +
-          '<span class="name-hint"></span></div>' +
-        '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
-        '<div class="field-row"><label>成本价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="1500.00" value="' + esc(ui.hCost) + '"></div>' +
-      "</div>" +
-      '<button class="btn-primary" data-act="addHolding">添加持仓</button>' +
-      '<div class="card ov-card"><div class="card-title">说明</div>' +
-        '<div class="list-row"><span>同一代码重复添加</span><span class="hint">按加权平均合并成本</span></div>' +
-        '<div class="list-row"><span>点一行</span><span class="hint">删除这只</span></div>' +
+      '<button class="btn-primary" data-act="goHoldingNew">＋ 添加持仓</button>' +
+      '<div class="hold-note fine">' +
+        "<b>成本怎么算</b>" +
+        "<p>总成本 = 股数 × 成交价 + 手续费，摊薄成本价 = 总成本 ÷ 股数。手续费（券商佣金、过户费、印花税）算进成本，所以这里的盈亏是从真金白银开始算的。</p>" +
+        "<b>同一只买两次</b>" +
+        "<p>不会多开一行：股数相加、成交价按股数加权平均、手续费累加，行上显示「摊薄@」就是合并后的真实单价。</p>" +
+        "<b>现价从哪来</b>" +
+        "<p>点 hero 上的「刷新」拉最新行情；拉不到就拿成本价顶着，盈亏显示「待更新」，不会乱算。</p>" +
+        "<b>想删一只</b>" +
+        "<p>直接点那一行，确认后删除。已记过的分红流水不受影响。</p>" +
       "</div>";
 
     // 渲染完再异步拉报价，避免在 render 栈里同步递归
@@ -1816,6 +1826,108 @@
 
     return head + '<div class="card ov-card"><div class="card-title">明细</div>' + rows + "</div>" + form;
   }
+
+
+  /* ================= 二级页：添加持仓 =================
+     三步走：①买哪只 ②买了多少 ③手续费。
+     每改一个数字，下面的「这样算下来」实时算出买入金额 / 手续费 / 总成本 / 摊薄成本价，
+     按「确认添加」才真正写入，写完自动退回持仓页看结果。 */
+
+  var HFEE_QUICK = [0, 5, 10, 20];
+
+  /* 把当前输入算成一个成本结构，视图和按钮都用这一份，避免两处算法不一致 */
+  function hCalc() {
+    var shares = parseFloat(ui.hShares);
+    var cost = parseFloat(ui.hCost);
+    var fee = parseFloat(ui.hFee);
+    if (!isFinite(fee) || fee < 0) fee = 0;
+    var ok = isFinite(shares) && shares > 0 && isFinite(cost) && cost > 0;
+    var amount = ok ? Math.round(shares * cost * 100) : 0;
+    var feeCents = Math.round(fee * 100);
+    var total = amount + feeCents;
+    return {
+      ok: ok, shares: shares,
+      costCents: Math.round((isFinite(cost) ? cost : 0) * 100),
+      amount: amount, feeCents: feeCents, total: total,
+      avg: (ok && shares > 0) ? Math.round(total / shares) : 0
+    };
+  }
+
+  function hCalcHtml() {
+    var c = hCalc();
+    if (!c.ok) {
+      return '<div class="hcalc-empty">填上股数和成交价，这里实时算总成本</div>';
+    }
+    return '<div class="hcalc-row"><span>买入金额</span><b>' + cash(c.amount) + "</b></div>" +
+      '<div class="hcalc-row"><span>手续费</span><b>' + cash(c.feeCents) + "</b></div>" +
+      '<div class="hcalc-row total"><span>实际总成本</span><b>' + cash(c.total) + "</b></div>" +
+      '<div class="hcalc-row"><span>摊薄成本价</span><b>' + money(c.avg) + "</b></div>";
+  }
+
+  /* 只重画算账那一块，不整页 render——整页重绘会把输入框焦点顶掉 */
+  function paintHCalc() {
+    var box = document.querySelector(".hcalc");
+    if (box) box.innerHTML = hCalcHtml();
+    var btn = document.querySelector('[data-act="addHolding"]');
+    if (btn) btn.classList.toggle("disabled", !hCalc().ok);
+  }
+
+  function viewHoldingNew() {
+    var code = normCode(ui.hCode);
+    var picked = /^[0-9]{6}\.(SH|SZ|BJ)$/.test(code);
+    var feeNow = parseFloat(ui.hFee);
+    if (!isFinite(feeNow)) feeNow = 0;
+
+    var quick = HFEE_QUICK.map(function (v) {
+      var on = Math.round(v * 100) === Math.round(feeNow * 100) ? " on" : "";
+      return '<span class="hfee-q' + on + '" data-act="hFeeQuick" data-v="' + v + '">' +
+        (v ? "¥" + v : "没手续费") + "</span>";
+    }).join("");
+
+    return '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>添加持仓</h1><div class="icon-btn"></div></div>' +
+
+      '<div class="card ov-card">' +
+        '<div class="card-title"><span class="step-no">1</span>买的是哪只</div>' +
+        '<div class="field-row"><label>代码</label>' +
+          '<input data-act="hCode" placeholder="输代码或名称，如 600000 / 浦发" value="' + esc(ui.hCode) + '">' +
+        "</div>" +
+        '<div class="ss-list"></div>' +
+        '<div class="hsel' + (picked ? " on" : "") + '">' +
+          (picked
+            ? '<span class="hsel-nm">' + esc(ui.hName || code) + '</span><span class="hsel-code">' + esc(code) + "</span>"
+            : '<span class="hsel-tip">还没选股票 · 上面输代码会自动带出名称</span>') +
+        "</div>" +
+      "</div>" +
+
+      '<div class="card ov-card">' +
+        '<div class="card-title"><span class="step-no">2</span>买了多少</div>' +
+        '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
+        '<div class="field-row"><label>成交价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="7.25" value="' + esc(ui.hCost) + '"></div>' +
+        '<div class="fine-inline">成交价是「一股多少钱」，不是这一笔的总金额。A 股买入按手（100 股）成交。</div>' +
+      "</div>" +
+
+      '<div class="card ov-card">' +
+        '<div class="card-title"><span class="step-no">3</span>手续费（可以留空）</div>' +
+        '<div class="field-row"><label>金额</label><input data-act="hFee" type="number" inputmode="decimal" placeholder="0.00" value="' + esc(ui.hFee) + '"></div>' +
+        '<div class="chips-scroll hfee-row">' + quick + "</div>" +
+        '<div class="fine-inline">券商收的佣金、过户费加上（卖出才有的）印花税，合计多少填多少。算不清就留空或点「没手续费」，只是盈亏会偏乐观一点。</div>' +
+      "</div>" +
+
+      '<div class="card ov-card hcalc-card">' +
+        '<div class="card-title">这样算下来</div>' +
+        '<div class="hcalc">' + hCalcHtml() + "</div>" +
+      "</div>" +
+
+      '<button class="btn-primary' + (hCalc().ok ? "" : " disabled") + '" data-act="addHolding">确认添加</button>' +
+
+      '<div class="hold-note fine">' +
+        "<b>股数</b><p>填券商回单上的实际成交股数，零股就填零股（比如 300）。</p>" +
+        "<b>成交价</b><p>填成交均价，不是现价、也不是昨收。填错了删掉重加就行。</p>" +
+        "<b>手续费为什么要填</b><p>加上它成本价才是你真实付出的单价，卖出算盈亏时才不会把券商的钱算成自己赚的。</p>" +
+        "<b>同一只再加一次</b><p>不会开新行：股数相加，成交价按股数加权，手续费累加。</p>" +
+      "</div>";
+  }
+
 
 
   /* ================= 视图：个股详情（股息体检） =================
@@ -3995,6 +4107,7 @@
     return setHead("关于与更新") +
       '<div class="card ov-card"><div class="card-title">版本</div>' +
         '<div class="list-row"><span>当前版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
+        '<div class="list-row"><span>构建</span><span class="hint">' + BUILD_ID + "</span></div>" +
         '<div class="list-row" data-act="forceUpdate"><span>检查更新</span>' +
           '<span class="hint">清缓存并重新加载 ›</span></div>' +
       "</div>" +
@@ -4291,6 +4404,7 @@
   };
 
   VIEW_PARENT.stock = "holdings";
+  VIEW_PARENT.holdingnew = "holdings";   // 添加持仓退回持仓页
 
   function goBack() {
     var v = parseHash().view;
@@ -4370,6 +4484,7 @@
     else if (r.view === "stats") body = viewAssets();
     else if (r.view === "assets") body = viewAssets();
     else if (r.view === "holdings") body = viewHoldings();
+    else if (r.view === "holdingnew") body = viewHoldingNew();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -4401,7 +4516,7 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
-      : (r.view === "holdings" || r.view === "overview" || r.view === "stock") ? "assets"
+      : (r.view === "holdings" || r.view === "holdingnew" || r.view === "overview" || r.view === "stock") ? "assets"
       : (r.view === "wallets" || r.view === "tags" || r.view === "config") ? "config"
       : r.view === "search" ? "book"
       : r.view;
@@ -4435,7 +4550,7 @@
     // 进设置页顺手对一次云端，别的设备刚记的账才看得见
     if (r.view === "config") pullMergeIfNeeded();
     // 进持仓页顺手把股票索引拉到本地，等用户点搜索时就是 0 延迟
-    if (r.view === "holdings") ensureStockIdx();
+    if (r.view === "holdings" || r.view === "holdingnew") ensureStockIdx();
     /* 决策广场也要预取：在账本/资产页停留一秒后悄悄拉一次，
        等用户点「决策」时内容已经在内存里，不用等网络。 */
     if (auth && r.view !== "decide" && !decideState().loaded) {
@@ -5296,31 +5411,40 @@
     var name = String(ui.hName || "").trim();
     var shares = parseFloat(ui.hShares);
     var cost = parseFloat(ui.hCost);
-    if (!code) { toast("先填代码"); return; }
+    var fee = parseFloat(ui.hFee);
+    if (!isFinite(fee) || fee < 0) fee = 0;
+    if (!code) { toast("先选股票"); return; }
     if (!isFinite(shares) || shares <= 0) { toast("股数不对"); return; }
-    if (!isFinite(cost) || cost <= 0) { toast("成本价不对"); return; }
+    if (!isFinite(cost) || cost <= 0) { toast("成交价不对"); return; }
+
+    var feeCents = Math.round(fee * 100);
+    var costCents = Math.round(cost * 100);
 
     var exist = db.holdings.filter(function (h) { return h.code === code; })[0];
     if (exist) {
-      // 同一只再次买入：按加权平均合并成本
-      var oldTotal = exist.shares * exist.costCents;
-      var addTotal = shares * Math.round(cost * 100);
-      exist.shares = exist.shares + shares;
-      exist.costCents = Math.round((oldTotal + addTotal) / exist.shares);
+      /* 同一只再次买入：股数相加，成交价按股数加权，手续费累加。
+         摊薄成本价由 holdingStats 统一按（股数×成交价+手续费）/股数 算，
+         这里不重复实现，免得两处算出来不一样。 */
+      var oldShares = exist.shares, oldCost = exist.costCents;
+      exist.shares = oldShares + shares;
+      exist.costCents = Math.round((oldShares * oldCost + shares * costCents) / exist.shares);
+      exist.feeCents = Math.round((exist.feeCents || 0) + feeCents);
       if (name) exist.name = name;
-      toast("已合并，均价 " + money(exist.costCents));
+      toast("已合并，摊薄成本 " + money(Math.round((exist.shares * exist.costCents + exist.feeCents) / exist.shares)));
     } else {
       db.holdings.push({
         id: uid("h"), code: code, name: name || code,
-        shares: shares, costCents: Math.round(cost * 100),
+        shares: shares, costCents: costCents, feeCents: feeCents,
         priceCents: null, priceAt: 0
       });
       toast("已加 " + (name || code));
     }
-    ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = "";
+    ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = ""; ui.hFee = "";
     _nameLooked = ""; _autoName = "";   // 重置查询缓存，下一只重新查
     save();
-    render();
+    /* 加完回持仓页看结果，别把人留在空表单上不知道该干嘛 */
+    if (parseHash().view === "holdingnew") location.hash = "#/holdings";
+    else render();
   }
 
   function delHolding(id) {
@@ -5468,7 +5592,19 @@
     else if (act === "sdDivSync") { startDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivConfirm") { commitDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivCancel") { stockState().sync = null; render(); }
+    else if (act === "goHoldingNew") { location.hash = "#/holdingnew"; }
     else if (act === "addHolding") addHolding();
+    else if (act === "hFeeQuick") {
+      /* 快捷手续费：写进输入框并切高亮，只重画算账块 */
+      ui.hFee = String(el.getAttribute("data-v") || "0");
+      var fi = document.querySelector('[data-act="hFee"]');
+      if (fi) fi.value = ui.hFee;
+      var qs = document.querySelectorAll(".hfee-q");
+      for (var qi = 0; qi < qs.length; qi++) {
+        if (qs[qi] === el) qs[qi].classList.add("on"); else qs[qi].classList.remove("on");
+      }
+      paintHCalc();
+    }
     else if (act === "pickStock") pickStock(el.getAttribute("data-code") || "", el.getAttribute("data-name") || "");
     else if (act === "delHolding") delHolding(id);
     else if (act === "refreshQuotes") refreshQuotes(true);
@@ -5703,8 +5839,9 @@
     else if (act === "setMemo") ui.memo = el.value;
     else if (act === "hCode") { ui.hCode = el.value; scheduleNameLookup(); searchStocks(el.value); }
     else if (act === "hName") ui.hName = el.value;
-    else if (act === "hShares") ui.hShares = el.value;
-    else if (act === "hCost") ui.hCost = el.value;
+    else if (act === "hShares") { ui.hShares = el.value; paintHCalc(); }
+    else if (act === "hCost") { ui.hCost = el.value; paintHCalc(); }
+    else if (act === "hFee") { ui.hFee = el.value; paintHCalc(); }
     else if (act === "wName") ui.wName = el.value;
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
