@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold13";
+  var BUILD_ID = "20261104-hold14";
 
   var DEFAULTS = {
     wallets: [
@@ -2069,6 +2069,27 @@
   }
 
   var KL_TIMEOUT = 25000;   // 全量日线几百 KB，慢网给足 25 秒，超时也要说清楚
+  var KL_CACHE_TTL = 24 * 3600 * 1000;   // 上市以来的日线一天不会变，缓存一天
+
+  function klCacheKey(code) { return "sz.kl.v1." + code; }
+
+  function klReadCache(code) {
+    try {
+      var o = JSON.parse(localStorage.getItem(klCacheKey(code)) || "null");
+      if (!o || !o.at || !o.j || !o.j.d) return null;
+      if (Date.now() - o.at > KL_CACHE_TTL) return null;
+      return o.j;
+    } catch (e) { return null; }
+  }
+
+  function klWriteCache(code, j) {
+    try {
+      localStorage.setItem(klCacheKey(code), JSON.stringify({ at: Date.now(), j: j }));
+    } catch (e) {
+      /* 存不下就算了（5MB 满了），下次再走网络 */
+      try { localStorage.removeItem(klCacheKey(code)); } catch (e2) {}
+    }
+  }
 
   function klLoad(code, force) {
     if (!code) return;
@@ -2081,6 +2102,25 @@
     render();
 
     var t0 = Date.now();
+    /* 先看本地缓存：昨天看过的股票秒开，不用再下 300KB */
+    var cached = force ? null : klReadCache(code);
+    if (cached) {
+      var cb = klBarsFrom(cached);
+      if (cb.length) {
+        KL.loading = false;
+        KL.bars = cb;
+        KL.meta = cached;
+        KL.at = Date.now();
+        KL.ma5 = klMA(cb, 5);
+        KL.ma20 = klMA(cb, 20);
+        KL.cross = -1;
+        KL.b = cb.length;
+        KL.a = Math.max(0, cb.length - KL_DEFAULT_BARS);
+        render();
+        return;
+      }
+    }
+
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     var timer = setTimeout(function () {
       KL.slow = true;
@@ -2112,6 +2152,7 @@
         KL.bars = bars;
         KL.meta = j;
         KL.at = Date.now();
+        klWriteCache(code, j);
         KL.ma5 = klMA(bars, 5);
         KL.ma20 = klMA(bars, 20);
         KL.cross = -1;
@@ -2159,11 +2200,11 @@
     var bars = KL.bars;
     if (!bars || !bars.length) return;
 
-    var W = 340, H = 208;
+    var W = 340, H = 214;
     var L = 4, R = 28, T = 10;
     var PH = 148;               // 价格区高度
     var V0 = T + PH + 12;       // 成交量区起点
-    var VH = 30;                // 成交量区高度
+    var VH = 26;                // 成交量区高度
     var DB = H - 4;             // 日期轴基线
     var iw = W - L - R;
 
