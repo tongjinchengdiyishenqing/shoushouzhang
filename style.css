@@ -3545,4 +3545,18 @@ html, body { overscroll-behavior-y: contain; }
   cursor: pointer;
 }
 .kl-r:active { background: #e7f2f8; }
+.kl-tools { flex-wrap: wrap; }
+.kl-nav {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 6px 0;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+}
+.kl-nav:active { opacity: 0.8; }
 .kl-retry { color: var(--accent); text-decoration: underline; }
