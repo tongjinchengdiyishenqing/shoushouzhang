@@ -5348,6 +5348,68 @@
   }
 
   document.addEventListener("click", function (ev) {
+    /* ---- 胶囊（替掉了原生 select，点 span 只触发 click，不触发 change） ---- */
+    /* ---- 流水类型：支出 / 收入 / 转账 ---- */
+    if (act === "autoFlow" || act === "autoFlowLocal") {
+      var aF = autoState();
+      var iF = Number(el.getAttribute("data-id"));
+      var vF = el.getAttribute("data-v") || "out";
+      var bucketF = act === "autoFlow" ? aF.remote : aF.items;
+      var targetF = bucketF && bucketF[iF];
+      if (targetF) {
+        targetF.flow = vF;
+        if (vF === "move") {
+          /* 转账：没有分类，改成"从哪个账户到哪个账户" */
+          targetF.tagId = "";
+          targetF.walletId = targetF.walletId || pickWallet(0);
+          targetF.toWalletId = targetF.toWalletId || pickWallet(1);
+        } else {
+          delete targetF.toWalletId;
+          // 换了方向，原来的分类可能不属于这个方向，重挑一个
+          var t0 = tagsOf(vF)[0];
+          targetF.tagId = t0 ? t0.id : "";
+        }
+      }
+      render();
+      return;
+    }
+
+    /* ---- 转账的转出 / 转入账户 ---- */
+    if (act === "autoFrom" || act === "autoTo" || act === "autoFromLocal" || act === "autoToLocal") {
+      var aW = autoState();
+      var iW = Number(el.getAttribute("data-id"));
+      var vW = el.getAttribute("data-v") || "";
+      var isLocal = act.indexOf("Local") > 0;
+      var bucketW = isLocal ? aW.items : aW.remote;
+      var targetW = bucketW && bucketW[iW];
+      if (targetW && vW) {
+        if (act.indexOf("From") === 0 || act === "autoFromLocal") targetW.walletId = vW;
+        else targetW.toWalletId = vW;
+      }
+      render();
+      return;
+    }
+
+    /* 胶囊点击（原生 select 的 change 事件已不再触发） */
+    if (act === "sdWalletPick") { stockState().walletId = el.getAttribute("data-v") || ""; render(); return; }
+    if (act === "autoTag" || act === "autoRemoteTag") {
+      var aChips = autoState();
+      var iChips = Number(el.getAttribute("data-id"));
+      var vChips = el.getAttribute("data-v") || "";
+      var bucket = act === "autoTag" ? aChips.items : aChips.remote;
+      if (bucket && bucket[iChips]) bucket[iChips].tagId = vChips;
+      render();
+      return;
+    }
+    if (act === "autoTag") {
+      var a = autoState();
+      var i = Number(el.getAttribute("data-id"));
+      if (a.items[i]) a.items[i].tagId = el.value;
+    } else if (act === "autoRemoteTag") {
+      var a2 = autoState();
+      var j = Number(el.getAttribute("data-id"));
+      if (a2.remote && a2.remote[j]) a2.remote[j].tagId = el.value;
+    }
     var el = ev.target.closest("[data-act]");
     if (!el) return;
     var act = el.getAttribute("data-act");
@@ -5679,67 +5741,6 @@
     var el = ev.target;
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "sdWallet") { stockState().walletId = el.value; return; }
-    /* ---- 流水类型：支出 / 收入 / 转账 ---- */
-    if (act === "autoFlow" || act === "autoFlowLocal") {
-      var aF = autoState();
-      var iF = Number(el.getAttribute("data-id"));
-      var vF = el.getAttribute("data-v") || "out";
-      var bucketF = act === "autoFlow" ? aF.remote : aF.items;
-      var targetF = bucketF && bucketF[iF];
-      if (targetF) {
-        targetF.flow = vF;
-        if (vF === "move") {
-          /* 转账：没有分类，改成"从哪个账户到哪个账户" */
-          targetF.tagId = "";
-          targetF.walletId = targetF.walletId || pickWallet(0);
-          targetF.toWalletId = targetF.toWalletId || pickWallet(1);
-        } else {
-          delete targetF.toWalletId;
-          // 换了方向，原来的分类可能不属于这个方向，重挑一个
-          var t0 = tagsOf(vF)[0];
-          targetF.tagId = t0 ? t0.id : "";
-        }
-      }
-      render();
-      return;
-    }
-
-    /* ---- 转账的转出 / 转入账户 ---- */
-    if (act === "autoFrom" || act === "autoTo" || act === "autoFromLocal" || act === "autoToLocal") {
-      var aW = autoState();
-      var iW = Number(el.getAttribute("data-id"));
-      var vW = el.getAttribute("data-v") || "";
-      var isLocal = act.indexOf("Local") > 0;
-      var bucketW = isLocal ? aW.items : aW.remote;
-      var targetW = bucketW && bucketW[iW];
-      if (targetW && vW) {
-        if (act.indexOf("From") === 0 || act === "autoFromLocal") targetW.walletId = vW;
-        else targetW.toWalletId = vW;
-      }
-      render();
-      return;
-    }
-
-    /* 胶囊点击（原生 select 的 change 事件已不再触发） */
-    if (act === "sdWalletPick") { stockState().walletId = el.getAttribute("data-v") || ""; render(); return; }
-    if (act === "autoTag" || act === "autoRemoteTag") {
-      var aChips = autoState();
-      var iChips = Number(el.getAttribute("data-id"));
-      var vChips = el.getAttribute("data-v") || "";
-      var bucket = act === "autoTag" ? aChips.items : aChips.remote;
-      if (bucket && bucket[iChips]) bucket[iChips].tagId = vChips;
-      render();
-      return;
-    }
-    if (act === "autoTag") {
-      var a = autoState();
-      var i = Number(el.getAttribute("data-id"));
-      if (a.items[i]) a.items[i].tagId = el.value;
-    } else if (act === "autoRemoteTag") {
-      var a2 = autoState();
-      var j = Number(el.getAttribute("data-id"));
-      if (a2.remote && a2.remote[j]) a2.remote[j].tagId = el.value;
-    }
   });
 
   window.addEventListener("hashchange", function () { ui._loaded = false; render(); });
