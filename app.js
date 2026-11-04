@@ -2184,7 +2184,9 @@
       }).join("");
       syncBox = '<div class="sd-sync">' +
         '<div class="sd-sync-h">按除权日记 ' + st.sync.length + " 笔到账</div>" +
+        '<div class="au-chips">' +
         chipsHtml(db.wallets || [], stockState().walletId || (db.wallets[0] && db.wallets[0].id), "sdWalletPick", 0) +
+      "</div>" +
         st.sync.map(function (x) {
           return '<div class="sd-div-row"><span class="d">' + esc(x.exDate) + "</span>" +
             '<span class="v">每股 ¥' + x.dps.toFixed(3) + "</span>" +
@@ -2808,9 +2810,9 @@
         '<div class="au-right">' +
           '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
-          chipsHtml(tagsOf(it.flow), it.tagId, "autoRemoteTag", i) +
         "</div>" +
         '<span class="au-del" data-act="autoRemoteDrop" data-id="' + i + '">✕</span>' +
+        '<div class="au-chips">' + chipsHtml(tagsOf(it.flow), it.tagId, "autoRemoteTag", i) + "</div>" +
       "</div>";
     }).join("");
 
@@ -2831,9 +2833,9 @@
         '<div class="au-right">' +
           '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
-          chipsHtml(tagsOf(it.flow), it.tagId, "autoTag", i) +
         "</div>" +
         '<span class="au-del" data-act="autoDrop" data-id="' + i + '">✕</span>' +
+        '<div class="au-chips">' + chipsHtml(tagsOf(it.flow), it.tagId, "autoTag", i) + "</div>" +
       "</div>";
     }).join("");
 
