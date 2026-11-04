@@ -3501,6 +3501,13 @@ html, body { overscroll-behavior-y: contain; }
   z-index: 3;
   touch-action: none;
 }
+@keyframes klFade {
+  to { opacity: 0; visibility: hidden; }
+}
+/* 卡片显示 1.6 秒后自己淡出，不靠 JS 定时器（安卓 WebView 会节流定时器） */
+.kl-tip.show { animation: klFade 0.3s ease 1.6s forwards; }
+.kl-cross-g.kl-fade { animation: klFade 0.3s ease 1.6s forwards; }
+
 .kl-tip {
   position: absolute;
   left: 16px;
