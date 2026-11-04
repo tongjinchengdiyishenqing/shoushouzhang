@@ -5045,4 +5045,28 @@
   load();
   if (!location.hash) location.hash = "#/book";
   render();
+
+  /* 访客计数：只为了运营看板知道「今天来了几个人」。
+     串是本机随机生成的，换浏览器/清缓存就是另一个人；不带账号、不带 IP、不记看了哪页。
+     每个标签页每会话只报一次，自己别把自己的数刷上去。 */
+  var VISITOR_KEY = "sz.visitor.v1";
+  function pingVisit() {
+    try {
+      if (sessionStorage.getItem("sz.pvPinged") === "1") return;
+      sessionStorage.setItem("sz.pvPinged", "1");
+    } catch (e) {}
+    var v = "";
+    try {
+      v = localStorage.getItem(VISITOR_KEY) || "";
+      if (!v) {
+        v = "v" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
+        localStorage.setItem(VISITOR_KEY, v);
+      }
+    } catch (e) { return; }
+    apiFetch("/pageview/ping", {
+      method: "POST",
+      body: JSON.stringify({ visitor: v })
+    }).catch(function () { /* 记不上就算了，不影响记账 */ });
+  }
+  pingVisit();
 })();
