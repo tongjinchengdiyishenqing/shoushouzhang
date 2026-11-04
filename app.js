@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold11";
+  var BUILD_ID = "20261104-hold12";
 
   var DEFAULTS = {
     wallets: [
@@ -1988,7 +1988,7 @@
     if (!ui.stock) {
       ui.stock = { code: "", data: null, divs: null, loading: false,
       quote: null, quoteAt: "", quoteErr: "", error: "", at: 0, sync: null, walletId: "",
-      kline: null, klineCode: "", klineLoading: false, klineErr: "", klineAt: 0 };
+      kline: null, klineCode: "", klineLoading: false, klineErr: "", klineAt: 0 };   // 旧字段保留，避免老数据反序列化报错
     }
     return ui.stock;
   }
@@ -2022,103 +2022,454 @@
   }
 
 
-  /* ---------- 日 K ----------
-     数据来自后端 /kline（第一次看某只股票时后端会按需补历史日线，之后读库）。
-     不引图表库：一张 60KB 的图换 200KB 的 JS 不划算，手机关网时还会白屏。 */
-  function loadKline(code, force) {
-    var st = stockState();
+  /* ================= 交互式日 K =================
+     数据：/kline-history（上市以来，前复权），一次拉全量，之后同一次会话内不再请求。
+     手势：单指拖动 = 左右平移；双指捏合 = 缩放；点一下某天 = 十字光标 + 当天的价量；
+           电脑上滚轮也能缩放。
+     状态存在模块级的 KL 里，不放 DOM —— 页面上别的数据（比如 3 秒一次的报价轮询）
+     触发整页重绘时，图不会跳回默认位置。 */
+
+  var KL = {
+    code: "", bars: null, meta: null, at: 0, err: "", loading: false,
+    a: 0, b: 0,          // 可见窗口 [a, b)
+    cross: -1,           // 十字光标（数组下标），-1 表示不显示
+    ma5: null, ma20: null
+  };
+
+  var KL_DEFAULT_BARS = 120;     // 第一次进来先给半年左右
+  var KL_MIN_BARS = 12;          // 最少放大到 12 根，再多就没法看了
+  var KL_MAX_DRAW = 700;         // 一屏最多画多少根；超过就按桶合并
+
+  function klBarsFrom(j) {
+    var out = [], n = (j && j.d) ? j.d.length : 0;
+    for (var k = 0; k < n; k++) {
+      var c = j.c[k];
+      if (c == null) continue;
+      var o = j.o[k] == null ? c : j.o[k];
+      out.push({
+        d: j.d[k],
+        o: o,
+        h: j.h[k] == null ? Math.max(o, c) : j.h[k],
+        l: j.l[k] == null ? Math.min(o, c) : j.l[k],
+        c: c,
+        v: j.v[k] || 0
+      });
+    }
+    return out;
+  }
+
+  function klMA(bars, n) {
+    var out = new Array(bars.length), sum = 0;
+    for (var k = 0; k < bars.length; k++) {
+      sum += bars[k].c;
+      if (k >= n) sum -= bars[k - n].c;
+      out[k] = k >= n - 1 ? sum / n : null;
+    }
+    return out;
+  }
+
+  function klLoad(code, force) {
     if (!code) return;
-    if (!force && st.kline && st.klineCode === code) return;
-    if (st.klineLoading) return;
-    st.klineLoading = true;
-    st.klineCode = code;
-    st.klineErr = "";
+    if (!force && KL.code === code && KL.bars && KL.bars.length) return;
+    if (KL.loading) return;
+    KL.loading = true;
+    KL.code = code;
+    KL.err = "";
     render();
-    apiFetch("/kline/" + encodeURIComponent(code) + "?days=120", {})
+    apiFetch("/kline-history/" + encodeURIComponent(code), {})
       .then(function (r) {
         if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
         return r.body;
       })
-      .then(function (bars) {
-        st.klineLoading = false;
-        if (stockState().code !== code) return;
-        st.kline = Array.isArray(bars) ? bars : [];
-        st.klineAt = Date.now();
+      .then(function (j) {
+        KL.loading = false;
+        var bars = klBarsFrom(j);
+        if (!bars.length) {
+          KL.bars = null;
+          KL.err = "这只还没有长历史日线";
+          render();
+          return;
+        }
+        KL.bars = bars;
+        KL.meta = j;
+        KL.at = Date.now();
+        KL.ma5 = klMA(bars, 5);
+        KL.ma20 = klMA(bars, 20);
+        KL.cross = -1;
+        KL.b = bars.length;
+        KL.a = Math.max(0, bars.length - KL_DEFAULT_BARS);
         render();
       })
       .catch(function (e) {
-        st.klineLoading = false;
-        if (stockState().code !== code) return;
-        st.klineErr = (e && e.message) || "K 线拉不到";
+        KL.loading = false;
+        KL.err = (e && e.message) || "K 线拉不到";
         render();
       });
   }
 
-  /* 蜡烛图：纯 SVG。涨用 --pos 绿、跌用 --neg 红，跟 App 其他地方保持一致。 */
-  function klineSvg(bars) {
-    var W = 340, H = 148, L = 4, R = 26, T = 10, B = 16;   // R 留宽一点给右侧价位标签
-    var n = bars.length;
-    var hi = [], lo = [], cs = [];
-    for (var i = 0; i < n; i++) {
-      hi.push(Number(bars[i].high) || 0);
-      lo.push(Number(bars[i].low) || 0);
-      cs.push(Number(bars[i].close) || 0);
+  /* 可见窗口 → 绘制序列。窗口太宽时按桶合并，保证一屏最多画 700 根左右，
+     6419 根也不过是 700 个矩形，手机上照样跟手。 */
+  function klSeries() {
+    var bars = KL.bars, a = KL.a, b = KL.b;
+    var n = Math.max(0, b - a);
+    var step = n > KL_MAX_DRAW ? Math.ceil(n / KL_MAX_DRAW) : 1;
+    var items = [];
+    for (var i = a; i < b; i += step) {
+      var j2 = Math.min(b, i + step);
+      var o = bars[i].o, h = -Infinity, l = Infinity, v = 0;
+      for (var t = i; t < j2; t++) {
+        if (bars[t].h > h) h = bars[t].h;
+        if (bars[t].l < l) l = bars[t].l;
+        v += bars[t].v || 0;
+      }
+      items.push({
+        i0: i, i1: j2 - 1,
+        d: bars[i].d, d2: bars[j2 - 1].d,
+        o: o, h: h, l: l, c: bars[j2 - 1].c, v: v
+      });
     }
-    var realMax = Math.max.apply(null, hi), realMin = Math.min.apply(null, lo);
-    if (!(realMax > 0) || !(realMin > 0) || realMax === realMin) return "";
-    var pad = (realMax - realMin) * 0.06;
-    var max = realMax + pad, min = realMin - pad;
-    var iw = W - L - R, ih = H - T - B;
-    function X(i) { return L + (i + 0.5) * iw / n; }
-    function Y(v) { return T + (max - v) / (max - min) * ih; }
-    var slot = iw / n, bw = Math.max(1.1, Math.min(5.5, slot * 0.62));
+    return { items: items, step: step };
+  }
+
+  function klDraw() {
+    var box2 = document.querySelector(".kl-box");
+    if (!box2) return;
+    var bars = KL.bars;
+    if (!bars || !bars.length) return;
+
+    var W = 340, H = 208;
+    var L = 4, R = 28, T = 10;
+    var PH = 148;               // 价格区高度
+    var V0 = T + PH + 12;       // 成交量区起点
+    var VH = 30;                // 成交量区高度
+    var DB = H - 4;             // 日期轴基线
+    var iw = W - L - R;
+
+    var ser = klSeries();
+    var items = ser.items, step = ser.step;
+    var mx = -Infinity, mn = Infinity, vmax = 0, k;
+    for (k = 0; k < items.length; k++) {
+      if (items[k].h > mx) mx = items[k].h;
+      if (items[k].l < mn) mn = items[k].l;
+      if (items[k].v > vmax) vmax = items[k].v;
+    }
+    // 均线也要算进价格区间，否则 MA 会跑出画布
+    for (k = 0; k < items.length; k++) {
+      var m5 = KL.ma5[items[k].i1], m20 = KL.ma20[items[k].i1];
+      if (m5 != null && m5 > mx) mx = m5;
+      if (m5 != null && m5 < mn) mn = m5;
+      if (m20 != null && m20 > mx) mx = m20;
+      if (m20 != null && m20 < mn) mn = m20;
+    }
+    if (!(mx > 0) || !(mn > 0) || mx === mn) return;
+    var padY = (mx - mn) * 0.08;
+    var hi = mx + padY, lo = mn - padY;
+
+    var slot = iw / items.length;
+    var bw = Math.max(0.8, Math.min(9, slot * 0.62));
+    function X(idx) { return L + (idx + 0.5) * slot; }
+    function Y(v) { return T + (hi - v) / (hi - lo) * PH; }
+
     var out = [];
 
-    [max, (max + min) / 2, min].forEach(function (v, k) {
+    // 价格网格 + 右侧价位
+    [hi, (hi + lo) / 2, lo].forEach(function (v, idx) {
       var y = Y(v).toFixed(1);
       out.push('<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y +
-        '" stroke="#E4EFF5" stroke-width="1"' + (k === 1 ? ' stroke-dasharray="3 3"' : "") + "/>");
+        '" stroke="#E4EFF5" stroke-width="1"' + (idx === 1 ? ' stroke-dasharray="3 3"' : "") + "/>");
       out.push('<text x="' + (W - 2) + '" y="' + (Number(y) - 2).toFixed(1) +
         '" text-anchor="end" font-size="8.5" fill="#767680">' + v.toFixed(2) + "</text>");
     });
 
-    for (var j = 0; j < n; j++) {
-      var o = Number(bars[j].open) || cs[j];
-      var c = cs[j];
-      var up = c >= o;
+    // 蜡烛
+    for (k = 0; k < items.length; k++) {
+      var it = items[k], up = it.c >= it.o;
       var col = up ? "#1e7a58" : "#c0453c";
-      var x = X(j).toFixed(1);
-      out.push('<line x1="' + x + '" y1="' + Y(hi[j]).toFixed(1) + '" x2="' + x +
-        '" y2="' + Y(lo[j]).toFixed(1) + '" stroke="' + col + '" stroke-width="1"/>');
-      var y1 = Y(Math.max(o, c)), y2 = Y(Math.min(o, c));
-      out.push('<rect x="' + (X(j) - bw / 2).toFixed(1) + '" y="' + y1.toFixed(1) +
+      var x = X(k).toFixed(1);
+      out.push('<line x1="' + x + '" y1="' + Y(it.h).toFixed(1) + '" x2="' + x + '" y2="' +
+        Y(it.l).toFixed(1) + '" stroke="' + col + '" stroke-width="1"/>');
+      var y1 = Y(Math.max(it.o, it.c)), y2 = Y(Math.min(it.o, it.c));
+      out.push('<rect x="' + (X(k) - bw / 2).toFixed(1) + '" y="' + y1.toFixed(1) +
         '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, y2 - y1).toFixed(1) +
         '" fill="' + col + '" rx="0.4"/>');
     }
 
-    var pts = [], sum = 0;
-    for (var k = 0; k < n; k++) {
-      sum += cs[k];
-      if (k >= 20) sum -= cs[k - 20];
-      if (k >= 19) pts.push([X(k), Y(sum / 20)]);
+    // MA5 / MA20
+    function maPath(arr, color) {
+      var d = "", started = false;
+      for (var q = 0; q < items.length; q++) {
+        var v = arr[items[q].i1];
+        if (v == null) continue;
+        d += (started ? "L" : "M") + X(q).toFixed(1) + " " + Y(v).toFixed(1) + " ";
+        started = true;
+      }
+      return started ? '<path d="' + d + '" fill="none" stroke="' + color +
+        '" stroke-width="1.2" opacity="0.9"/>' : "";
     }
-    if (pts.length > 1) {
-      out.push('<path d="' + pts.map(function (p, idx) {
-        return (idx ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
-      }).join(" ") + '" fill="none" stroke="#1E6E96" stroke-width="1.3" opacity="0.92"/>');
+    out.push(maPath(KL.ma5, "#c98a1e"));
+    out.push(maPath(KL.ma20, "#1E6E96"));
+
+    // 成交量
+    if (vmax > 0) {
+      for (k = 0; k < items.length; k++) {
+        var hv = (items[k].v / vmax) * VH;
+        var upv = items[k].c >= items[k].o;
+        out.push('<rect x="' + (X(k) - bw / 2).toFixed(1) + '" y="' + (V0 + VH - hv).toFixed(1) +
+          '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.6, hv).toFixed(1) +
+          '" fill="' + (upv ? "#1e7a58" : "#c0453c") + '" opacity="0.45" rx="0.3"/>');
+      }
     }
 
-    out.push('<text x="' + L + '" y="' + (H - 4) + '" font-size="8.5" fill="#767680">' + esc(bars[0].trade_date) + "</text>");
-    out.push('<text x="' + (W - R) + '" y="' + (H - 4) +
-      '" font-size="8.5" fill="#767680" text-anchor="end">' + esc(bars[n - 1].trade_date) + "</text>");
+    // 日期轴
+    out.push('<text x="' + L + '" y="' + DB + '" font-size="8.5" fill="#767680">' +
+      esc(items[0].d) + "</text>");
+    out.push('<text x="' + (W - R) + '" y="' + DB + '" text-anchor="end" font-size="8.5" fill="#767680">' +
+      esc(items[items.length - 1].d2) + "</text>");
 
-    var maNow = pts.length ? (sum / Math.min(20, n)).toFixed(2) : "";
-    return '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>" +
-      '<div class="kl-legend">' +
-        '<span>近 ' + n + " 个交易日</span>" +
-        "<span>最高 " + realMax.toFixed(2) + " · 最低 " + realMin.toFixed(2) + "</span>" +
-        '<span class="kl-ma">MA20 ' + maNow + "</span>" +
-      "</div>";
+    // 十字光标
+    if (KL.cross >= 0 && KL.cross < bars.length) {
+      var ci = KL.cross;
+      // 找到光标落在哪个绘制列
+      var col2 = -1;
+      for (k = 0; k < items.length; k++) {
+        if (ci >= items[k].i0 && ci <= items[k].i1) { col2 = k; break; }
+      }
+      if (col2 < 0) { col2 = ci < items[0].i0 ? 0 : items.length - 1; }
+      var cx = X(col2).toFixed(1);
+      out.push('<line x1="' + cx + '" y1="' + T + '" x2="' + cx + '" y2="' + (V0 + VH) +
+        '" stroke="#0e0e10" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.55"/>');
+      var cb = bars[ci];
+      out.push('<circle cx="' + cx + '" cy="' + Y(cb.c).toFixed(1) + '" r="2.2" fill="#fff" stroke="#0e0e10" stroke-width="1"/>');
+    }
+
+    /* 只换图表本身：外层 .kl-tip / .kl-stat / .kl-tools 要留着，
+       而且 .kl-box 这个节点不能换（手势绑在它身上，换了就失灵）。 */
+    box2.innerHTML = '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>";
+    klPaintTip();
+  }
+
+  /* 光标悬浮信息 + 区间统计 */
+  function klPaintTip() {
+    var host = document.querySelector(".kl-host");
+    if (!host) return;
+    var tip = host.querySelector(".kl-tip");
+    var stat = host.querySelector(".kl-stat");
+    var bars = KL.bars;
+    if (!bars || !bars.length) return;
+
+    if (KL.cross >= 0 && KL.cross < bars.length) {
+      var b = bars[KL.cross];
+      var prev = KL.cross > 0 ? bars[KL.cross - 1].c : b.o;
+      var chg = prev > 0 ? ((b.c - prev) / prev) * 100 : 0;
+      var col = chg >= 0 ? "var(--pos)" : "var(--neg)";
+      if (tip) {
+        tip.hidden = false;
+        tip.innerHTML =
+          '<b class="kl-t-d">' + esc(b.d) + "</b>" +
+          '<span class="kl-t-r">开 ' + b.o.toFixed(2) + " · 高 " + b.h.toFixed(2) +
+          " · 低 " + b.l.toFixed(2) + " · 收 <b>" + b.c.toFixed(2) + "</b></span>" +
+          '<span class="kl-t-r" style="color:' + col + '">' +
+            (chg >= 0 ? "+" : "") + chg.toFixed(2) + "%</span>" +
+          '<span class="kl-t-r">量 ' + klVol(b.v) + "</span>";
+      }
+    } else if (tip) {
+      tip.hidden = true;
+    }
+
+    if (stat) {
+      var a = KL.a, z = KL.b - 1;
+      var first = bars[a] ? bars[a].o : 0;
+      var lastC = bars[z] ? bars[z].c : 0;
+      var rg = first > 0 ? ((lastC - first) / first) * 100 : 0;
+      var hh = -Infinity, ll = Infinity;
+      for (var q = a; q <= z; q++) {
+        if (bars[q].h > hh) hh = bars[q].h;
+        if (bars[q].l < ll) ll = bars[q].l;
+      }
+      var colr = rg >= 0 ? "var(--pos)" : "var(--neg)";
+      stat.innerHTML =
+        "<span>" + esc(bars[a].d) + " → " + esc(bars[z].d) + " · " + (KL.b - KL.a) + " 根</span>" +
+        '<span style="color:' + colr + '">区间 ' + (rg >= 0 ? "+" : "") + rg.toFixed(2) + "%</span>" +
+        "<span>高 " + hh.toFixed(2) + " · 低 " + ll.toFixed(2) + "</span>" +
+        (KL.meta && KL.meta.count
+          ? "<span>共 " + KL.meta.count + " 根 · " + (KL.meta.adjust === "qfq" ? "前复权" : "后复权") +
+            " · " + esc(String(KL.meta.first || "")) + " 起</span>"
+          : "");
+    }
+  }
+
+  function klVol(v) {
+    if (!v) return "—";
+    if (v >= 1e8) return (v / 1e8).toFixed(2) + " 亿手";
+    if (v >= 1e4) return (v / 1e4).toFixed(1) + " 万手";
+    return Math.round(v) + " 手";
+  }
+
+  /* 缩放 / 平移的公共入口：保持右端或指定锚点不动 */
+  function klZoom(newCount, anchorRatio) {
+    var bars = KL.bars;
+    if (!bars || !bars.length) return;
+    var n = bars.length;
+    newCount = Math.max(KL_MIN_BARS, Math.min(n, Math.round(newCount)));
+    var ratio = anchorRatio == null ? 1 : Math.max(0, Math.min(1, anchorRatio));
+    var end = KL.b;
+    var start = Math.round(end - newCount * (1 - ratio) - newCount * ratio * 0 + (KL.b - KL.a) * 0);
+    // 锚点：ratio=0 固定左端，ratio=1 固定右端，中间按比例
+    start = Math.round(KL.a + (KL.b - KL.a) * ratio - newCount * ratio);
+    var endNew = start + newCount;
+    if (start < 0) { start = 0; endNew = newCount; }
+    if (endNew > n) { endNew = n; start = Math.max(0, n - newCount); }
+    KL.a = start;
+    KL.b = endNew;
+    KL.cross = -1;
+    klDraw();
+  }
+
+  function klPanBy(deltaBars) {
+    var bars = KL.bars;
+    if (!bars) return;
+    var n = bars.length, w = KL.b - KL.a;
+    var a = KL.a + deltaBars;
+    if (a < 0) a = 0;
+    if (a + w > n) a = n - w;
+    if (a === KL.a) return;
+    KL.a = a;
+    KL.b = a + w;
+    KL.cross = -1;
+    klDraw();
+  }
+
+  /* 绑定手势：只绑一次，重复 render 后重新 mount 也能复用 */
+  function klBind(host) {
+    if (host._klBound) return;
+    host._klBound = true;
+    var box = host.querySelector(".kl-box");
+    if (!box) return;
+
+    function vx(clientX) {
+      var r = box.getBoundingClientRect();
+      var k = (clientX - r.left) / Math.max(1, r.width);
+      return 4 + k * (340 - 4 - 28);     // 换算到 viewBox 的绘图宽度
+    }
+    function idxAt(clientX) {
+      var ser = klSeries();
+      if (!ser.items.length) return -1;
+      var slot = (340 - 4 - 28) / ser.items.length;
+      var k = Math.floor((vx(clientX) - 4) / slot);
+      k = Math.max(0, Math.min(ser.items.length - 1, k));
+      return ser.items[k].i1;
+    }
+
+    var drag = null, pinch = null, moved = 0, downAt = 0;
+
+    function slotPx() {
+      var ser = klSeries();
+      var r = box.getBoundingClientRect();
+      var scale = Math.max(1, r.width) / (340 - 4 - 28);
+      return ((340 - 4 - 28) / Math.max(1, ser.items.length)) * scale;
+    }
+
+    box.addEventListener("touchstart", function (e) {
+      if (e.touches.length === 2) {
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinch = { dist: Math.max(20, Math.hypot(dx, dy)), count: KL.b - KL.a,
+                  ratio: (KL.a + KL.b) / 2 < (KL.b) ? 0.5 : 0.5 };
+        drag = null;
+        return;
+      }
+      if (e.touches.length === 1) {
+        downAt = Date.now();
+        moved = 0;
+        drag = { x: e.touches[0].clientX, a: KL.a, b: KL.b };
+      }
+    }, { passive: true });
+
+    box.addEventListener("touchmove", function (e) {
+      if (pinch && e.touches.length === 2) {
+        e.preventDefault();
+        var dx2 = e.touches[0].clientX - e.touches[1].clientX;
+        var dy2 = e.touches[0].clientY - e.touches[1].clientY;
+        var d = Math.max(20, Math.hypot(dx2, dy2));
+        var want = pinch.count * (pinch.dist / d);
+        klZoom(want, 0.5);
+        return;
+      }
+      if (drag && e.touches.length === 1) {
+        var dxm = e.touches[0].clientX - drag.x;
+        if (Math.abs(dxm) > 4) {
+          e.preventDefault();
+          moved = Math.abs(dxm);
+          var sp = slotPx();
+          var want2 = Math.round(-dxm / Math.max(0.5, sp));
+          var n = KL.bars.length, w = drag.b - drag.a;
+          var a = Math.max(0, Math.min(n - w, drag.a + want2));
+          if (a !== KL.a) { KL.a = a; KL.b = a + w; KL.cross = -1; klDraw(); }
+        }
+      }
+    }, { passive: false });
+
+    box.addEventListener("touchend", function () {
+      if (pinch) { pinch = null; return; }
+      if (drag && moved < 6 && Date.now() - downAt < 400) {
+        var ci = idxAt(drag.x);
+        KL.cross = (KL.cross === ci) ? -1 : ci;
+        drag = null;
+        klDraw();
+        return;
+      }
+      drag = null;
+    }, { passive: true });
+
+    // 电脑上：滚轮缩放，按住拖也能平移
+    box.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      var r = box.getBoundingClientRect();
+      var ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+      var factor = e.deltaY > 0 ? 1.25 : 0.8;
+      klZoom((KL.b - KL.a) * factor, ratio);
+    }, { passive: false });
+
+    box.addEventListener("mousedown", function (e) {
+      downAt = Date.now();
+      moved = 0;
+      drag = { x: e.clientX, a: KL.a, b: KL.b };
+    });
+    box.addEventListener("mousemove", function (e) {
+      if (!drag) return;
+      var dxm = e.clientX - drag.x;
+      if (Math.abs(dxm) > 3) {
+        moved = Math.abs(dxm);
+        var sp = slotPx();
+        var want2 = Math.round(-dxm / Math.max(0.5, sp));
+        var n = KL.bars.length, w = drag.b - drag.a;
+        var a = Math.max(0, Math.min(n - w, drag.a + want2));
+        if (a !== KL.a) { KL.a = a; KL.b = a + w; KL.cross = -1; klDraw(); }
+      }
+    });
+    box.addEventListener("mouseup", function (e) {
+      if (drag && moved < 4 && Date.now() - downAt < 400) {
+        var ci = idxAt(e.clientX);
+        KL.cross = (KL.cross === ci) ? -1 : ci;
+        klDraw();
+      }
+      drag = null;
+    });
+    box.addEventListener("mouseleave", function () { drag = null; });
+  }
+
+  /* 页面重绘后重新挂载：数据在就重画，没数据就拉一次 */
+  function klMount() {
+    var host = document.querySelector(".kl-host");
+    if (!host) return;
+    var code = host.getAttribute("data-code") || "";
+    if (KL.code === code && KL.bars && KL.bars.length) {
+      klBind(host);
+      klDraw();
+      return;
+    }
+    if (!KL.loading) klLoad(code);
+    else klBind(host);
   }
 
   function loadStockDetail(code, force) {
@@ -2292,7 +2643,7 @@
 
     if (!code) return head + '<div class="empty">没带股票代码</div>';
     if (!d && !st.loading && !st.error) setTimeout(function () { loadStockDetail(code); }, 0);
-    setTimeout(function () { loadKline(code); }, 0);
+    setTimeout(function () { klMount(); }, 0);
 
     var hs = (db.holdings || []).filter(function (h) { return h.code === code; })[0];
     var body = "";
@@ -2393,19 +2744,30 @@
         : "") +
     "</div>";
 
-    /* --- 日 K --- */
-    var kl = st.kline, klOk = !!(kl && kl.length >= 5 && st.klineCode === code);
+    /* --- 日 K（上市以来，可缩放/平移） --- */
+    var klReady = KL.code === code && KL.bars && KL.bars.length;
     body += '<div class="card ov-card">' +
-      '<div class="card-title">日 K</div>' +
-      (klOk
-        ? klineSvg(kl)
-        : (st.klineLoading
-          ? '<div class="sd-note">正在补历史日线…第一次看这只股票会慢一点。</div>'
-          : st.klineErr
-            ? '<div class="sd-note">' + esc(st.klineErr) + ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' +
-              esc(code) + '">重试</span></div>'
-            : '<div class="sd-note">这只还没有日线数据 · <span class="kl-retry" data-act="sdKlineReload" data-code="' +
-              esc(code) + '">拉一次</span></div>')) +
+      '<div class="card-title">日 K' +
+        '<span class="kl-cap">拖动平移 · 双指缩放 · 点一下看当天</span>' +
+      "</div>" +
+      '<div class="kl-host" data-code="' + esc(code) + '">' +
+        '<div class="kl-tip" hidden></div>' +
+        '<div class="kl-box"></div>' +
+        '<div class="kl-stat">' +
+          (klReady ? ""
+            : (KL.loading
+              ? "正在拉上市以来的日线（第一次会慢一点）…"
+              : esc(KL.err || "还没有这只的日线") +
+                ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' + esc(code) + '">重试</span>')) +
+        "</div>" +
+        '<div class="kl-tools">' +
+          '<span class="kl-r" data-act="klRange" data-n="20">1月</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="60">3月</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="250">1年</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="750">3年</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="0">全部</span>' +
+        "</div>" +
+      "</div>" +
     "</div>";
 
     /* --- 到手股息率：把成本扣掉再说 --- */
@@ -6041,7 +6403,17 @@
       _autoName = ui.hName;
       location.hash = "#/holdingnew";
     }
-    else if (act === "sdKlineReload") loadKline(el.getAttribute("data-code") || "", true);
+    else if (act === "sdKlineReload") klLoad(el.getAttribute("data-code") || "", true);
+    else if (act === "klRange") {
+      var want = Number(el.getAttribute("data-n")) || 0;
+      var total = (KL.bars && KL.bars.length) || 0;
+      if (!total) return;
+      var cnt = want > 0 ? want : total;
+      KL.a = Math.max(0, total - cnt);
+      KL.b = total;
+      KL.cross = -1;
+      klDraw();
+    }
     else if (act === "hFeeQuick") {
       /* 快捷手续费：写进输入框并切高亮，只重画算账块 */
       ui.hFee = String(el.getAttribute("data-v") || "0");
