@@ -2988,3 +2988,24 @@ a.list-row:last-child { border-bottom: 0; }
   min-width: 52px;
   text-align: right;
 }
+
+/* ============================================================
+   删除自己的帖子：低调文字按钮
+   不抢「我听劝 / 还是买了」这两个主操作的视觉重量，
+   但也不能小到点不着——右侧留足点击区
+   ============================================================ */
+.dc-meta .dc-del {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.dc-meta .dc-del:active {
+  background: rgba(224, 112, 112, .12);
+  color: var(--neg);
+}
+.dc-detail .dc-meta .dc-del { font-size: 12.5px; }
