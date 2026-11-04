@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold9";
+  var BUILD_ID = "20261104-hold10";
 
   var DEFAULTS = {
     wallets: [
@@ -2056,7 +2056,7 @@
 
   /* 蜡烛图：纯 SVG。涨用 --pos 绿、跌用 --neg 红，跟 App 其他地方保持一致。 */
   function klineSvg(bars) {
-    var W = 340, H = 148, L = 4, R = 4, T = 10, B = 16;
+    var W = 340, H = 148, L = 4, R = 26, T = 10, B = 16;   // R 留宽一点给右侧价位标签
     var n = bars.length;
     var hi = [], lo = [], cs = [];
     for (var i = 0; i < n; i++) {
