@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold4";
+  var BUILD_ID = "20261104-hold5";
 
   var DEFAULTS = {
     wallets: [
@@ -4114,15 +4114,126 @@
       "</div>";
   }
 
+  /* ---------- 应用内更新 ----------
+     先回答一个常见疑问：APK 是侧载装的，安卓不会替它自动更新，
+     所以「网页改了但另一部手机没反应」是正常的——网页跟 Service Worker 自动更新，
+     APK 只能重装。这里把版本号放到站点的 version.json，App 里的网页自己去比：
+     站点版本更高 → 给一个按钮，点一下让 APK 自己下载自己装（JS 桥 installUpdate）。
+     不在 APK 里（浏览器打开）就给下载链接，顺手能复制地址给另一部手机。 */
+
+  var UPDATE_JSON = "version.json";
+  var UPDATE_TTL = 60 * 1000;
+
+  /* 当前页面是不是跑在「长流·自动记账」APK 里；是的话顺带拿到它的版本号 */
+  function nativeApk() {
+    try {
+      if (window.SZCollectorNative && typeof window.SZCollectorNative.apkVersion === "function") {
+        return {
+          v: String(window.SZCollectorNative.apkVersion() || ""),
+          code: Number(window.SZCollectorNative.apkVersionCode() || 0),
+          canInstall: typeof window.SZCollectorNative.canInstall === "function"
+            ? !!window.SZCollectorNative.canInstall() : true
+        };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function updateState(force) {
+    if (!ui.upd) ui.upd = { at: 0, latest: null, err: "", loading: false };
+    var u = ui.upd;
+    if (!force && (u.loading || (u.at && Date.now() - u.at < UPDATE_TTL))) return u;
+    u.loading = true;
+    fetch(UPDATE_JSON + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        u.loading = false;
+        u.at = Date.now();
+        if (j && j.versionCode) { u.latest = j; u.err = ""; }
+        else { u.latest = null; u.err = "站点上没有更新信息"; }
+        if (parseHash().view === "config") render();
+      })
+      .catch(function () {
+        u.loading = false;
+        u.at = Date.now();
+        u.err = "网络不通，查不到最新版本";
+        if (parseHash().view === "config") render();
+      });
+    return u;
+  }
+
+  /* 复制到剪贴板：WebView 里 navigator.clipboard 经常不可用，退回老办法 */
+  function copyText(txt) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = txt;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+
+  function apkUrlOf(latest) {
+    var name = (latest && latest.apk) || "changliu-collector-1.2.apk";
+    return location.origin + "/" + name;
+  }
+
+  function startApkUpdate() {
+    var u = updateState(false);
+    var url = apkUrlOf(u.latest);
+    var nat = nativeApk();
+    if (nat) {
+      try {
+        window.SZCollectorNative.installUpdate(url);
+        toast(nat.canInstall ? "正在下载更新包，完成后会提示安装" : "先允许本应用安装应用，再点一次");
+        return;
+      } catch (e) {}
+    }
+    window.open(url, "_blank");
+    toast("已打开更新包，装完就是最新版");
+  }
+
   /* 二层：关于与更新 */
   function viewSetAbout() {
+    var nat = nativeApk();
+    var u = ui.upd || {};
+    var latest = u.latest;
+    var newer = !!(nat && latest && Number(latest.versionCode) > nat.code);
+    var apkLine = nat ? "v" + nat.v + "（" + nat.code + "）" : "网页里打开 · 不在 App 内";
+    var latestLine = latest
+      ? "v" + (latest.versionName || "?") + "（" + latest.versionCode + "）"
+      : (u.loading ? "查询中…" : (u.err || "点下面「检查更新」"));
+    setTimeout(function () { updateState(false); }, 0);
+
     return setHead("关于与更新") +
       '<div class="card ov-card"><div class="card-title">版本</div>' +
-        '<div class="list-row"><span>当前版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
+        '<div class="list-row"><span>网页版本</span><span class="hint">' + APP_VERSION + "</span></div>" +
         '<div class="list-row"><span>构建</span><span class="hint">' + BUILD_ID + "</span></div>" +
+        '<div class="list-row"><span>App 版本</span><span class="hint">' + esc(apkLine) + "</span></div>" +
+        '<div class="list-row"><span>最新 App 版本</span><span class="hint">' + esc(latestLine) + "</span></div>" +
+        (newer
+          ? '<div class="list-row upd-cta" data-act="apkUpdate"><span>有新版本 v' +
+            esc(latest.versionName || "") + "</span><span class=\"hint\">下载并安装 ›</span></div>"
+          : "") +
         '<div class="list-row" data-act="forceUpdate"><span>检查更新</span>' +
-          '<span class="hint">清缓存并重新加载 ›</span></div>' +
+          '<span class="hint">' + (newer ? "有新版，点上面那条装" : "清缓存并重新加载 ›") + "</span></div>" +
+        '<div class="list-row" data-act="copyApkUrl"><span>复制更新包地址</span>' +
+          '<span class="hint">给另一部手机装 ›</span></div>' +
       "</div>" +
+      (latest && latest.notes
+        ? '<div class="card ov-card"><div class="card-title">这一版改了什么</div>' +
+          '<div class="fine-inline" style="padding:0 18px 16px">' + esc(latest.notes) + "</div></div>"
+        : "") +
       '<div class="card ov-card"><div class="card-title">数据在哪</div>' +
         '<div class="list-row"><span>账本存放</span><span class="hint">本机 localStorage</span></div>' +
         '<div class="list-row"><span>联网用在哪</span><span class="hint">行情、同步、识别</span></div>' +
@@ -5641,6 +5752,11 @@
     else if (act === "pickStock") pickStock(el.getAttribute("data-code") || "", el.getAttribute("data-name") || "");
     else if (act === "delHolding") delHolding(id);
     else if (act === "refreshQuotes") refreshQuotes(true);
+    else if (act === "apkUpdate") startApkUpdate();
+    else if (act === "copyApkUrl") {
+      var ul = apkUrlOf((ui.upd || {}).latest);
+      toast(copyText(ul) ? "地址已复制，发到另一部手机打开" : ul);
+    }
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
     else if (act === "setBack") { location.hash = "#/config"; }
