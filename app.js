@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold18";
+  var BUILD_ID = "20261104-hold19";
 
   var DEFAULTS = {
     wallets: [
@@ -2030,7 +2030,8 @@
      触发整页重绘时，图不会跳回默认位置。 */
 
   var KL = {
-    code: "", bars: null, meta: null, at: 0, err: "", loading: false,
+    code: "", bars: null, src: null, period: "d",
+    meta: null, at: 0, err: "", loading: false,
     a: 0, b: 0,          // 可见窗口 [a, b)
     cross: -1,           // 十字光标（数组下标），-1 表示不显示
     ma5: null, ma20: null
@@ -2055,6 +2056,43 @@
         v: j.v[k] || 0
       });
     }
+    return out;
+  }
+
+  /* 日线聚合成周/月/季/年：开=当段第一根开、收=当段最后一根收、高低取极值、量求和。
+     同花顺的周K月K就是这么来的，不用后端另开接口。 */
+  function klBucketKey(d, period) {
+    if (period === "w") {
+      var dt = new Date(d + "T00:00:00");
+      var day = (dt.getDay() + 6) % 7;            // 周一=0
+      dt.setDate(dt.getDate() - day);
+      return dt.getFullYear() + "-" + (dt.getMonth() + 1) + "-" + dt.getDate();
+    }
+    if (period === "m") return d.slice(0, 7);
+    if (period === "q") return d.slice(0, 4) + "Q" + (Math.floor((Number(d.slice(5, 7)) - 1) / 3) + 1);
+    if (period === "y") return d.slice(0, 4);
+    return d;
+  }
+
+  function klAgg(bars, period) {
+    if (!period || period === "d" || !bars || !bars.length) return bars;
+    var out = [], curKey = null, cur = null;
+    for (var i = 0; i < bars.length; i++) {
+      var b = bars[i];
+      var k = klBucketKey(b.d, period);
+      if (k !== curKey) {
+        if (cur) out.push(cur);
+        curKey = k;
+        cur = { d: b.d, d2: b.d, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v || 0 };
+      } else {
+        if (b.h > cur.h) cur.h = b.h;
+        if (b.l < cur.l) cur.l = b.l;
+        cur.c = b.c;
+        cur.d2 = b.d;
+        cur.v += b.v || 0;
+      }
+    }
+    if (cur) out.push(cur);
     return out;
   }
 
@@ -2108,11 +2146,12 @@
       var cb = klBarsFrom(cached);
       if (cb.length) {
         KL.loading = false;
-        KL.bars = cb;
+        KL.src = cb;
+        KL.bars = klAgg(cb, KL.period);
         KL.meta = cached;
         KL.at = Date.now();
-        KL.ma5 = klMA(cb, 5);
-        KL.ma20 = klMA(cb, 20);
+        KL.ma5 = klMA(KL.bars, 5);
+        KL.ma20 = klMA(KL.bars, 20);
         KL.cross = -1;
         KL.b = cb.length;
         KL.a = Math.max(0, cb.length - KL_DEFAULT_BARS);
@@ -2149,15 +2188,16 @@
           render();
           return;
         }
-        KL.bars = bars;
+        KL.src = bars;
+        KL.bars = klAgg(bars, KL.period);
         KL.meta = j;
         KL.at = Date.now();
         klWriteCache(code, j);
-        KL.ma5 = klMA(bars, 5);
-        KL.ma20 = klMA(bars, 20);
+        KL.ma5 = klMA(KL.bars, 5);
+        KL.ma20 = klMA(KL.bars, 20);
         KL.cross = -1;
-        KL.b = bars.length;
-        KL.a = Math.max(0, bars.length - KL_DEFAULT_BARS);
+        KL.b = KL.bars.length;
+        KL.a = Math.max(0, KL.bars.length - KL_DEFAULT_BARS);
         render();
       })
       .catch(function (e) {
@@ -2194,11 +2234,60 @@
     return { items: items, step: step };
   }
 
+  /* 光标停留计时：松手后 1.8 秒自动收起。一直悬着会挡住 K 线，但立刻消失又看不清数字。 */
+  var KL_CROSS_HOLD = 1800;
+  var _klCrossTimer = null;
+
+  function klCrossClearTimeout() {
+    if (_klCrossTimer) { clearTimeout(_klCrossTimer); _klCrossTimer = null; }
+  }
+
+  function klCrossArm() {
+    klCrossClearTimeout();
+    _klCrossTimer = setTimeout(function () {
+      _klCrossTimer = null;
+      KL.cross = -1;
+      klDrawCross();
+      klPaintTip();
+    }, KL_CROSS_HOLD);
+  }
+
+  /* 十字光标：只动一个 <g>，不重画蜡烛 —— 这是滑动跟手的关键 */
+  function klDrawCross() {
+    var g = document.querySelector(".kl-cross-g");
+    var geo = KL._geo;
+    if (!g || !geo) return;
+    var bars = KL.bars;
+    if (!bars || KL.cross < 0 || KL.cross >= bars.length) {
+      g.style.display = "none";
+      return;
+    }
+    var col = -1, items = geo.items, k;
+    for (k = 0; k < items.length; k++) {
+      if (KL.cross >= items[k].i0 && KL.cross <= items[k].i1) { col = k; break; }
+    }
+    if (col < 0) col = KL.cross < items[0].i0 ? 0 : items.length - 1;
+    var x = geo.L + (col + 0.5) * geo.slot;
+    var cb = bars[KL.cross];
+    var y = geo.T + (geo.hi - cb.c) / (geo.hi - geo.lo) * (geo.V0 - geo.T - 12);
+    g.style.display = "";
+    g.setAttribute("transform", "translate(" + x.toFixed(1) + ",0)");
+    var circle = g.querySelector("circle");
+    if (circle) circle.setAttribute("cy", y.toFixed(1));
+  }
+
   function klDraw() {
     var box2 = document.querySelector(".kl-box");
     if (!box2) return;
     var bars = KL.bars;
     if (!bars || !bars.length) return;
+    /* 同一窗口（周期/区间/数据都没变）就别重画了 */
+    var drawKey = KL.code + "|" + KL.period + "|" + KL.a + "|" + KL.b;
+    if (KL._geo && KL._geo.drawKey === drawKey && box2.querySelector("svg.kl-svg")) {
+      klDrawCross();
+      klPaintTip();
+      return;
+    }
 
     var W = 340, H = 214;
     var L = 4, R = 28, T = 10;
@@ -2289,28 +2378,23 @@
     out.push('<text x="' + (W - R) + '" y="' + DB + '" text-anchor="end" font-size="8.5" fill="#767680">' +
       esc(items[items.length - 1].d2) + "</text>");
 
-    // 十字光标
-    if (KL.cross >= 0 && KL.cross < bars.length) {
-      var ci = KL.cross;
-      // 找到光标落在哪个绘制列
-      var col2 = -1;
-      for (k = 0; k < items.length; k++) {
-        if (ci >= items[k].i0 && ci <= items[k].i1) { col2 = k; break; }
-      }
-      if (col2 < 0) { col2 = ci < items[0].i0 ? 0 : items.length - 1; }
-      var cx = X(col2).toFixed(1);
-      out.push('<line x1="' + cx + '" y1="' + T + '" x2="' + cx + '" y2="' + (V0 + VH) +
-        '" stroke="#0e0e10" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.55"/>');
-      var cb = bars[ci];
-      out.push('<circle cx="' + cx + '" cy="' + Y(cb.c).toFixed(1) + '" r="2.2" fill="#fff" stroke="#0e0e10" stroke-width="1"/>');
-    }
-
     /* 只换 <svg>：.kl-box 和 .kl-gesture 都不能动。
        手指按着的时候把节点换掉，Chrome 会立刻 touchcancel，拖动就断在半路了。 */
+    /* 几何留给光标层用：滑动时只动 transform，不重建图形 */
+    KL._geo = { items: items, hi: hi, lo: lo, T: T, V0: V0, VH: VH,
+                W: W, H: H, L: L, R: R, slot: slot, drawKey: drawKey };
+
     var svgOld = box2.querySelector("svg.kl-svg");
     if (svgOld && svgOld.parentNode) svgOld.parentNode.removeChild(svgOld);
     box2.insertAdjacentHTML("afterbegin",
-      '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>");
+      '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") +
+        '<g class="kl-cross-g" style="display:none">' +
+          '<line x1="0" y1="' + T + '" x2="0" y2="' + (V0 + VH) +
+            '" stroke="#0e0e10" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.55"/>' +
+          '<circle cx="0" cy="0" r="2.4" fill="#fff" stroke="#0e0e10" stroke-width="1"/>' +
+        "</g>" +
+      "</svg>");
+    klDrawCross();
     klPaintTip();
   }
 
@@ -2322,6 +2406,22 @@
     var stat = host.querySelector(".kl-stat");
     var bars = KL.bars;
     if (!bars || !bars.length) return;
+
+    /* 卡片跟着光标换边：光标在右半边 → 卡片靠左；反之靠右。这样不压住十字线。 */
+    var host2 = document.querySelector(".kl-host");
+    if (host2 && KL._geo && KL.cross >= 0) {
+      var geo0 = KL._geo, col0 = -1;
+      for (var q0 = 0; q0 < geo0.items.length; q0++) {
+        if (KL.cross >= geo0.items[q0].i0 && KL.cross <= geo0.items[q0].i1) { col0 = q0; break; }
+      }
+      if (col0 < 0) col0 = 0;
+      var relX = (geo0.L + (col0 + 0.5) * geo0.slot) / geo0.W;
+      var tipEl = host2.querySelector(".kl-tip");
+      if (tipEl) {
+        if (relX > 0.55) { tipEl.style.left = "16px"; tipEl.style.right = "auto"; }
+        else { tipEl.style.left = "auto"; tipEl.style.right = "16px"; }
+      }
+    }
 
     if (KL.cross >= 0 && KL.cross < bars.length) {
       var b = bars[KL.cross];
@@ -2387,7 +2487,8 @@
     if (endNew > n) { endNew = n; start = Math.max(0, n - newCount); }
     KL.a = start;
     KL.b = endNew;
-    KL.cross = -1;
+    if (KL.cross >= KL.b) KL.cross = KL.b - 1;
+    if (KL.cross < KL.a) KL.cross = KL.a;
     klDraw();
   }
 
@@ -2440,8 +2541,9 @@
       if (e.touches.length === 2) {
         var dx = e.touches[0].clientX - e.touches[1].clientX;
         var dy = e.touches[0].clientY - e.touches[1].clientY;
-        pinch = { dist: Math.max(20, Math.hypot(dx, dy)), count: KL.b - KL.a,
-                  ratio: (KL.a + KL.b) / 2 < (KL.b) ? 0.5 : 0.5 };
+        var d0 = Math.hypot(dx, dy);
+        if (d0 < 30) return;      // 两指太近时先别当捏合，免得抖
+        pinch = { dist: d0, count: KL.b - KL.a };
         drag = null;
         return;
       }
@@ -2449,6 +2551,10 @@
         downAt = Date.now();
         moved = 0;
         drag = { x: e.touches[0].clientX, a: KL.a, b: KL.b };
+        klCrossClearTimeout();
+        /* 一按下去就把光标放到手指底下，不用先滑一下才有反应 */
+        var ci0 = idxAt(e.touches[0].clientX);
+        if (ci0 >= 0) { KL.cross = ci0; klDrawCross(); klPaintTip(); }
       }
     }, { passive: true });
 
@@ -2457,35 +2563,49 @@
         e.preventDefault();
         var dx2 = e.touches[0].clientX - e.touches[1].clientX;
         var dy2 = e.touches[0].clientY - e.touches[1].clientY;
-        var d = Math.max(20, Math.hypot(dx2, dy2));
-        var want = pinch.count * (pinch.dist / d);
+        var d = Math.max(30, Math.hypot(dx2, dy2));
+        /* 1.7 次幂：手指拉开一点点就能明显放大，跟同花顺的手感接近 */
+        var want = pinch.count * Math.pow(pinch.dist / d, 1.7);
+        var cur = KL.b - KL.a;
+        if (Math.abs(want - cur) < Math.max(1, cur * 0.02)) return;   // 变化太小就不重画
         klZoom(want, 0.5);
         return;
       }
       if (drag && e.touches.length === 1) {
-        var dxm = e.touches[0].clientX - drag.x;
-        if (Math.abs(dxm) > 4) {
+        klCrossClearTimeout();
+        var cx = e.touches[0].clientX;
+        var dxm = cx - drag.x;
+        if (Math.abs(dxm) > 3) {
           e.preventDefault();
           moved = Math.abs(dxm);
-          var sp = slotPx();
-          var want2 = Math.round(-dxm / Math.max(0.5, sp));
-          var n = KL.bars.length, w = drag.b - drag.a;
-          var a = Math.max(0, Math.min(n - w, drag.a + want2));
-          if (a !== KL.a) { KL.a = a; KL.b = a + w; KL.cross = -1; klDraw(); }
         }
+        /* 同花顺的手感：手指指哪儿，十字光标就停在哪一天。
+           拖到左右边缘时不是「没反应」，而是自动续一页（持续往那个方向翻）。 */
+        var r = box.getBoundingClientRect();
+        var rel = (cx - r.left) / Math.max(1, r.width);
+        if (rel < 0.06 && KL.a > 0) {
+          klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
+        } else if (rel > 0.94 && KL.b < KL.bars.length) {
+          klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
+        }
+        var ci2 = idxAt(cx);
+        if (ci2 >= 0 && ci2 !== KL.cross) { KL.cross = ci2; klDrawCross(); klPaintTip(); }
       }
     }, { passive: false });
 
     pad.addEventListener("touchend", function () {
       if (pinch) { pinch = null; return; }
       if (drag && moved < 6 && Date.now() - downAt < 400) {
+        /* 纯点一下：同一天再点一次就收起；否则停一会儿自动收起 */
         var ci = idxAt(drag.x);
         KL.cross = (KL.cross === ci) ? -1 : ci;
         drag = null;
         klDraw();
+        if (KL.cross >= 0) klCrossArm();
         return;
       }
       drag = null;
+      if (KL.cross >= 0) klCrossArm();   /* 滑完松手：先留着让人看清，1.8 秒后收起 */
     }, { passive: true });
 
     // 电脑上：滚轮缩放，按住拖也能平移
@@ -2505,14 +2625,13 @@
     pad.addEventListener("mousemove", function (e) {
       if (!drag) return;
       var dxm = e.clientX - drag.x;
-      if (Math.abs(dxm) > 3) {
-        moved = Math.abs(dxm);
-        var sp = slotPx();
-        var want2 = Math.round(-dxm / Math.max(0.5, sp));
-        var n = KL.bars.length, w = drag.b - drag.a;
-        var a = Math.max(0, Math.min(n - w, drag.a + want2));
-        if (a !== KL.a) { KL.a = a; KL.b = a + w; KL.cross = -1; klDraw(); }
-      }
+      if (Math.abs(dxm) > 3) moved = Math.abs(dxm);
+      var r2 = box.getBoundingClientRect();
+      var rel2 = (e.clientX - r2.left) / Math.max(1, r2.width);
+      if (rel2 < 0.06 && KL.a > 0) klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
+      else if (rel2 > 0.94 && KL.b < KL.bars.length) klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
+      var ci3 = idxAt(e.clientX);
+      if (ci3 >= 0 && ci3 !== KL.cross) { KL.cross = ci3; klDrawCross(); klPaintTip(); }
     });
     pad.addEventListener("mouseup", function (e) {
       if (drag && moved < 4 && Date.now() - downAt < 400) {
@@ -2523,14 +2642,28 @@
       drag = null;
     });
     pad.addEventListener("mouseleave", function () { drag = null; });
+
+    /* 点图表以外的地方：立刻收起，不用等计时 */
+    if (!window._klOutsideBound) {
+      window._klOutsideBound = true;
+      document.addEventListener("click", function (ev) {
+        if (ev.target.closest && ev.target.closest(".kl-host")) return;
+        if (KL.cross >= 0) {
+          klCrossClearTimeout();
+          KL.cross = -1;
+          klDrawCross();
+          klPaintTip();
+        }
+      }, true);
+    }
   }
 
   /* K 线卡片本体：跟评分/分红无关，所以评分没回来时也先把它画出来 */
   function klCardHtml(code) {
     var ready = KL.code === code && KL.bars && KL.bars.length;
     return '<div class="card ov-card">' +
-      '<div class="card-title">日 K' +
-        '<span class="kl-cap">点一下看当天 · ‹ － ＋ › 翻看 · 也能拖动/捏合</span>' +
+      '<div class="card-title">K 线' +
+        '<span class="kl-cap">按住左右滑看每一天 · ‹ － ＋ › 翻页缩放 · 双指捏合</span>' +
       "</div>" +
       '<div class="kl-host" data-code="' + esc(code) + '">' +
         '<div class="kl-tip" hidden></div>' +
@@ -2542,16 +2675,18 @@
               : esc(KL.err || "还没有这只的日线") +
                 ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' + esc(code) + '">重试</span>')) +
         "</div>" +
+        '<div class="kl-periods">' +
+          [["d", "日"], ["w", "周"], ["m", "月"], ["q", "季"], ["y", "年"]].map(function (x) {
+            return '<span class="kl-p' + ((KL.period || "d") === x[0] ? " on" : "") +
+              '" data-act="klPeriod" data-p="' + x[0] + '">' + x[1] + "</span>";
+          }).join("") +
+        "</div>" +
         '<div class="kl-tools">' +
           '<span class="kl-nav" data-act="klPanPrev">‹</span>' +
           '<span class="kl-nav" data-act="klZoomOut">－</span>' +
           '<span class="kl-nav" data-act="klZoomIn">＋</span>' +
           '<span class="kl-nav" data-act="klPanNext">›</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="20">1月</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="60">3月</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="250">1年</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="750">3年</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="0">全部</span>' +
+          '<span class="kl-hint">按住左右滑看每一天</span>' +
         "</div>" +
       "</div>" +
     "</div>";
@@ -2760,7 +2895,8 @@
     if (st.error && !d) {
       body = '<div class="empty">' + esc(st.error) +
         '<div class="empty-act" data-act="sdReload" data-code="' + esc(code) + '">重试</div></div>';
-      return head + acts + body;
+      /* 评分/分红拉不到时，K 线照样给——用户来看图，不该被别的接口连累 */
+      return head + acts + klCardHtml(code) + body;
     }
     if (!d) {
       /* 评分/分红还没回来时，先把 K 线给出来——它不依赖那些接口 */
@@ -6491,15 +6627,19 @@
       var wP = KL.b - KL.a;
       klPanBy(Math.round(wP * 0.7) * (act === "klPanPrev" ? -1 : 1));
     }
-    else if (act === "klRange") {
-      var want = Number(el.getAttribute("data-n")) || 0;
-      var total = (KL.bars && KL.bars.length) || 0;
-      if (!total) return;
-      var cnt = want > 0 ? want : total;
-      KL.a = Math.max(0, total - cnt);
-      KL.b = total;
+    else if (act === "klPeriod") {
+      var np = el.getAttribute("data-p") || "d";
+      if (np === KL.period) return;
+      KL.period = np;
+      if (KL.src && KL.src.length) {
+        KL.bars = klAgg(KL.src, np);
+        KL.ma5 = klMA(KL.bars, 5);
+        KL.ma20 = klMA(KL.bars, 20);
+        KL.b = KL.bars.length;
+        KL.a = Math.max(0, KL.bars.length - KL_DEFAULT_BARS);
+      }
       KL.cross = -1;
-      klDraw();
+      render();
     }
     else if (act === "hFeeQuick") {
       /* 快捷手续费：写进输入框并切高亮，只重画算账块 */
