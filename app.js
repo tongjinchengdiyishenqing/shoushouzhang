@@ -1796,9 +1796,38 @@
 
   function stockState() {
     if (!ui.stock) {
-      ui.stock = { code: "", data: null, divs: null, loading: false, error: "", at: 0, sync: null, walletId: "" };
+      ui.stock = { code: "", data: null, divs: null, loading: false,
+      quote: null, quoteAt: "", quoteErr: "", error: "", at: 0, sync: null, walletId: "" };
     }
     return ui.stock;
+  }
+
+  /* 个股页也要实时价。
+     原来这里只显示评分表里的收盘价——用户点进来看"今天涨没涨"，
+     看到的却是两天前的数字，等于这一页没有行情。 */
+  function loadStockQuote(code, force) {
+    var stq = stockState();
+    if (!code) return;
+    if (!force && stq.quote && stq.quoteCode === code && stq.quoteAt) return;
+    stq.quoteCode = code;
+    var url = AUTH_API + "/quotes?codes=" + encodeURIComponent(code);
+    fetch(url, { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (stockState().code !== code) return;
+        var q = j && j.quotes && j.quotes[code];
+        if (q && isFinite(q.price) && q.price > 0) {
+          stq.quote = q;
+          stq.quoteAt = (j && j.as_of) || "";
+          stq.quoteErr = "";
+          render();
+        } else {
+          stq.quoteErr = "行情源没这只";
+        }
+      })
+      .catch(function () {
+        if (stockState().code === code) stq.quoteErr = "行情拉不到";
+      });
   }
 
   function loadStockDetail(code, force) {
@@ -1819,6 +1848,7 @@
       });
     }
 
+    loadStockQuote(code, force);
     Promise.all([get("/score/" + encodeURIComponent(code)), get("/dividends/" + encodeURIComponent(code))])
       .then(function (res) {
         if (stockState().code !== code) return;
@@ -1932,16 +1962,43 @@
       return head + '<div class="dc-skel"><i></i><i></i><i></i></div>';
     }
 
-    /* --- 价格 + 我的持仓 --- */
-    var priceCents = hs && hs.priceCents != null ? hs.priceCents : Math.round((d.close || 0) * 100);
+    /* --- 价格 + 我的持仓 ---
+       价格优先级：实时行情 > 持仓里记的价 > 评分基准日的收盘价。
+       以前缺了实时这一路，页面上永远是评分表那天的收盘价。 */
+    var stq = stockState();
+    var q = stq.quote && stq.quoteCode === code ? stq.quote : null;
+    var liveCents = q && isFinite(q.price) && q.price > 0 ? Math.round(q.price * 100) : null;
+    var closeCents = Math.round((d.close || 0) * 100);
+    var priceCents = liveCents != null ? liveCents
+      : (hs && hs.priceCents != null ? hs.priceCents : closeCents);
+    var isLive = liveCents != null;
     var mv = hs ? Math.round(hs.shares * priceCents) : 0;
     var cost = hs ? Math.round(hs.shares * hs.costCents) : 0;
     var pnl = mv - cost;
     var pnlPct = cost ? (pnl / cost) * 100 : 0;
 
+    /* 行情时间只取时分：后端给的是 ISO，长串在窄屏上会被挤掉 */
+    var qt = String((q && q.quote_time) || stq.quoteAt || "");
+    var qtShort = "";
+    if (liveCents != null) {
+      var hm = qt.match(/(\d{1,2}:\d{2})/);
+      qtShort = hm ? hm[1] : "";
+    }
+    var chgTxt = "";
+    if (isLive && isFinite(q.change) && isFinite(q.pct_chg)) {
+      var up = q.change >= 0;
+      chgTxt = '<span class="sd-chg ' + (up ? "up" : "down") + '">' +
+        (up ? "+" : "") + Number(q.change).toFixed(2) + "（" +
+        (up ? "+" : "") + Number(q.pct_chg).toFixed(2) + "%）</span>";
+    }
+    var priceTag = isLive
+      ? '<span class="sd-live"><i></i>实时' + (qtShort ? " " + esc(qtShort) : "") + "</span>" + chgTxt
+      : '<span class="sd-close">收盘价' + (d.score_date ? " · " + esc(d.score_date) : "") + "</span>";
+
     body += '<div class="hero sd-hero">' +
-      '<div class="label">' + esc(code) + (d.score_date ? " · 数据 " + esc(d.score_date) : "") + "</div>" +
+      '<div class="label">' + esc(d.name || code) + " " + esc(code) + "</div>" +
       '<div class="big"><span class="cur">¥</span>' + money(priceCents) + "</div>" +
+      '<div class="sd-pxline">' + priceTag + "</div>" +
       (hs
         ? '<div class="delta ' + (pnl < 0 ? "down" : pnl > 0 ? "up" : "") + '">持有 <b>' + fmtShares(hs.shares) +
           "</b> 股 · 市值 <b>¥" + money(mv) + "</b> · 盈亏 <b>" + (pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(pnl)) +
@@ -1970,6 +2027,7 @@
       sdBar("稳健度", d.steadiness_score) +
       sdBar("覆盖度", d.coverage_score) +
       '<div class="sd-note">' +
+        (d.score_date ? "按 " + esc(d.score_date) + " 收盘 ¥" + (d.close != null ? Number(d.close).toFixed(2) : "—") + " 计算 · " : "") +
         (d.avg3_year_dividend ? "近 3 年平均每股分红 ¥" + d.avg3_year_dividend + " · " : "") +
         (d.cagr5 != null ? (d.cagr_label || "近 5 年增长率") + " " + Number(d.cagr5).toFixed(1) + "%" : "") +
       "</div>" +
