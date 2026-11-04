@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold20";
+  var BUILD_ID = "20261104-hold21";
 
   var DEFAULTS = {
     wallets: [
@@ -2487,8 +2487,10 @@
     if (endNew > n) { endNew = n; start = Math.max(0, n - newCount); }
     KL.a = start;
     KL.b = endNew;
-    if (KL.cross >= KL.b) KL.cross = KL.b - 1;
-    if (KL.cross < KL.a) KL.cross = KL.a;
+    if (KL.cross >= 0) {          // -1 表示"没在虚线状态"，别把 -1 当成越界去夹
+      if (KL.cross >= KL.b) KL.cross = KL.b - 1;
+      if (KL.cross < KL.a) KL.cross = KL.a;
+    }
     klDraw();
   }
 
@@ -2537,80 +2539,107 @@
       return ((340 - 4 - 28) / Math.max(1, ser.items.length)) * scale;
     }
 
-    pad.addEventListener("touchstart", function (e) {
-      if (e.touches.length === 2) {
-        var dx = e.touches[0].clientX - e.touches[1].clientX;
-        var dy = e.touches[0].clientY - e.touches[1].clientY;
-        var d0 = Math.hypot(dx, dy);
-        if (d0 < 30) return;      // 两指太近时先别当捏合，免得抖
-        pinch = { dist: d0, count: KL.b - KL.a };
-        drag = null;
-        return;
-      }
-      if (e.touches.length === 1) {
-        downAt = Date.now();
-        moved = 0;
-        drag = { x: e.touches[0].clientX, a: KL.a, b: KL.b };
-        klCrossClearTimeout();
-        /* 一按下去就把光标放到手指底下，不用先滑一下才有反应 */
-        var ci0 = idxAt(e.touches[0].clientX);
-        if (ci0 >= 0) { KL.cross = ci0; klDrawCross(); klPaintTip(); }
-        klCrossArm();   /* 兜底：就算系统不给 touchend，也会自己收 */
-      }
-    }, { passive: true });
+    /* 两指：捏合缩放（灵敏度 1.7 次幂，沿用） */
+    function pinchStart(e) {
+      var dx = e.touches[0].clientX - e.touches[1].clientX;
+      var dy = e.touches[0].clientY - e.touches[1].clientY;
+      var d0 = Math.hypot(dx, dy);
+      if (d0 < 30) return false;
+      pinch = { dist: d0, count: KL.b - KL.a };
+      drag = null;
+      return true;
+    }
+    function pinchMove(e) {
+      var dx2 = e.touches[0].clientX - e.touches[1].clientX;
+      var dy2 = e.touches[0].clientY - e.touches[1].clientY;
+      var d = Math.max(30, Math.hypot(dx2, dy2));
+      var want = pinch.count * Math.pow(pinch.dist / d, 1.7);
+      var cur = KL.b - KL.a;
+      if (Math.abs(want - cur) < Math.max(1, cur * 0.02)) return;
+      klZoom(want, 0.5);
+    }
 
-    pad.addEventListener("touchmove", function (e) {
-      if (pinch && e.touches.length === 2) {
-        e.preventDefault();
-        var dx2 = e.touches[0].clientX - e.touches[1].clientX;
-        var dy2 = e.touches[0].clientY - e.touches[1].clientY;
-        var d = Math.max(30, Math.hypot(dx2, dy2));
-        /* 1.7 次幂：手指拉开一点点就能明显放大，跟同花顺的手感接近 */
-        var want = pinch.count * Math.pow(pinch.dist / d, 1.7);
-        var cur = KL.b - KL.a;
-        if (Math.abs(want - cur) < Math.max(1, cur * 0.02)) return;   // 变化太小就不重画
-        klZoom(want, 0.5);
-        return;
-      }
-      if (drag && e.touches.length === 1) {
-        klCrossClearTimeout();
-        var cx = e.touches[0].clientX;
-        var dxm = cx - drag.x;
-        if (Math.abs(dxm) > 3) {
-          e.preventDefault();
-          moved = Math.abs(dxm);
-        }
-        /* 同花顺的手感：手指指哪儿，十字光标就停在哪一天。
-           拖到左右边缘时不是「没反应」，而是自动续一页（持续往那个方向翻）。 */
-        var r = box.getBoundingClientRect();
-        var rel = (cx - r.left) / Math.max(1, r.width);
-        if (rel < 0.06 && KL.a > 0) {
-          klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
-        } else if (rel > 0.94 && KL.b < KL.bars.length) {
-          klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
-        }
-        var ci2 = idxAt(cx);
-        if (ci2 >= 0 && ci2 !== KL.cross) { KL.cross = ci2; klDrawCross(); klPaintTip(); }
+    /* 单指按下：虚线状态 → 拖光标；平时 → 拖时间轴 */
+    function beginDrag(x) {
+      downAt = Date.now();
+      moved = 0;
+      klCrossClearTimeout();
+      drag = { x: x, a: KL.a, b: KL.b, cross: KL.cross >= 0 };
+      if (drag.cross) {
+        var ci0 = idxAt(x);
+        if (ci0 >= 0) { KL.cross = ci0; klDrawCross(); klPaintTip(); }
         klCrossArm();
       }
-    }, { passive: false });
+    }
 
-    pad.addEventListener("touchend", function () {
-      if (pinch) { pinch = null; return; }
-      if (drag && moved < 6 && Date.now() - downAt < 400) {
-        /* 纯点一下：同一天再点一次就收起；否则停一会儿自动收起 */
-        var ci = idxAt(drag.x);
-        KL.cross = (KL.cross === ci) ? -1 : ci;
+    function moveDrag(x, allowPrevent, ev) {
+      if (!drag) return;
+      drag.lastX = x;
+      var dxm = x - drag.x;
+      if (Math.abs(dxm) > 3) {
+        moved = Math.abs(dxm);
+        if (allowPrevent && ev) ev.preventDefault();
+      }
+      if (drag.cross) {
+        /* 虚线状态：手指指哪儿光标停哪儿（拖到边上继续翻） */
+        var r = box.getBoundingClientRect();
+        var rel = (x - r.left) / Math.max(1, r.width);
+        if (rel < 0.05 && KL.a > 0) klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.12)));
+        else if (rel > 0.95 && KL.b < KL.bars.length) klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.12)));
+        var ci = idxAt(x);
+        if (ci >= 0 && ci !== KL.cross) { KL.cross = ci; klDrawCross(); klPaintTip(); }
+        klCrossArm();
+        return;
+      }
+      /* 平时：整段平移（不出光标、不显示数字） */
+      if (Math.abs(dxm) <= 3) return;
+      var sp = slotPx();
+      var want2 = Math.round(-dxm / Math.max(0.5, sp));
+      var n = KL.bars.length, w = drag.b - drag.a;
+      var a = Math.max(0, Math.min(n - w, drag.a + want2));
+      if (a !== KL.a) { KL.a = a; KL.b = a + w; klDraw(); }
+    }
+
+    function endDrag(x) {
+      if (!drag) return;
+      var wasCross = drag.cross;
+      var ci = idxAt(x);
+      if (moved < 6 && Date.now() - downAt < 400) {
+        /* 点一下：直接把光标放到那天（不进开关逻辑，避免"上次没退干净"影响这次） */
+        KL.cross = ci >= 0 ? ci : -1;
         drag = null;
-        klDraw();
+        klDrawCross();
+        klPaintTip();
         if (KL.cross >= 0) klCrossArm();
         return;
       }
       drag = null;
-      if (KL.cross >= 0) klCrossArm();   /* 滑完松手：先留着让人看清，1.8 秒后收起 */
+      if (wasCross && KL.cross >= 0) klCrossArm();   // 读数完先留 1.8 秒
+    }
+
+    pad.addEventListener("touchstart", function (e) {
+      if (e.touches.length === 2) { pinchStart(e); return; }
+      if (e.touches.length === 1) beginDrag(e.touches[0].clientX);
     }, { passive: true });
 
-    // 电脑上：滚轮缩放，按住拖也能平移
+    pad.addEventListener("touchmove", function (e) {
+      if (pinch && e.touches.length === 2) { e.preventDefault(); pinchMove(e); return; }
+      if (e.touches.length === 1) moveDrag(e.touches[0].clientX, true, e);
+    }, { passive: false });
+
+    pad.addEventListener("touchend", function () {
+      if (pinch) { pinch = null; return; }
+      endDrag(drag ? (drag.lastX == null ? drag.x : drag.lastX) : 0);
+    }, { passive: true });
+
+    /* 系统打断（页面滚动、被上层截走）：当一次松手处理，别留下卡住的光标 */
+    pad.addEventListener("touchcancel", function () {
+      pinch = null;
+      if (drag) { drag = null; }
+      if (KL.cross >= 0) klCrossArm();
+    }, { passive: true });
+
+    // 电脑上：滚轮缩放；按住拖跟手指一样（平时平移，虚线状态读数）
     pad.addEventListener("wheel", function (e) {
       e.preventDefault();
       var r = box.getBoundingClientRect();
@@ -2619,52 +2648,10 @@
       klZoom((KL.b - KL.a) * factor, ratio);
     }, { passive: false });
 
-    pad.addEventListener("mousedown", function (e) {
-      downAt = Date.now();
-      moved = 0;
-      drag = { x: e.clientX, a: KL.a, b: KL.b };
-    });
-    pad.addEventListener("mousemove", function (e) {
-      if (!drag) return;
-      var dxm = e.clientX - drag.x;
-      if (Math.abs(dxm) > 3) moved = Math.abs(dxm);
-      var r2 = box.getBoundingClientRect();
-      var rel2 = (e.clientX - r2.left) / Math.max(1, r2.width);
-      if (rel2 < 0.06 && KL.a > 0) klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
-      else if (rel2 > 0.94 && KL.b < KL.bars.length) klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.15)));
-      var ci3 = idxAt(e.clientX);
-      if (ci3 >= 0 && ci3 !== KL.cross) { KL.cross = ci3; klDrawCross(); klPaintTip(); }
-    });
-    pad.addEventListener("mouseup", function (e) {
-      if (drag && moved < 4 && Date.now() - downAt < 400) {
-        var ci = idxAt(e.clientX);
-        KL.cross = (KL.cross === ci) ? -1 : ci;
-        klDraw();
-      }
-      drag = null;
-    });
+    pad.addEventListener("mousedown", function (e) { beginDrag(e.clientX); });
+    pad.addEventListener("mousemove", function (e) { moveDrag(e.clientX, false); });
+    pad.addEventListener("mouseup", function (e) { endDrag(e.clientX); });
     pad.addEventListener("mouseleave", function () { drag = null; });
-
-    /* 系统打断（页面滚了、被上层截走）时补一个 touchend 的收尾 */
-    pad.addEventListener("touchcancel", function () {
-      pinch = null;
-      drag = null;
-      if (KL.cross >= 0) klCrossArm();
-    }, { passive: true });
-
-    /* 点图表以外的地方：立刻收起，不用等计时 */
-    if (!window._klOutsideBound) {
-      window._klOutsideBound = true;
-      document.addEventListener("click", function (ev) {
-        if (ev.target.closest && ev.target.closest(".kl-host")) return;
-        if (KL.cross >= 0) {
-          klCrossClearTimeout();
-          KL.cross = -1;
-          klDrawCross();
-          klPaintTip();
-        }
-      }, true);
-    }
   }
 
   /* K 线卡片本体：跟评分/分红无关，所以评分没回来时也先把它画出来 */
@@ -2672,7 +2659,7 @@
     var ready = KL.code === code && KL.bars && KL.bars.length;
     return '<div class="card ov-card">' +
       '<div class="card-title">K 线' +
-        '<span class="kl-cap">按住左右滑看每一天 · ‹ － ＋ › 翻页缩放 · 双指捏合</span>' +
+        '<span class="kl-cap">拖动看别的时段 · 点一下再拖=看每天价格 · 双指缩放</span>' +
       "</div>" +
       '<div class="kl-host" data-code="' + esc(code) + '">' +
         '<div class="kl-tip" hidden></div>' +
