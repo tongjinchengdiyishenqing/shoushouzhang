@@ -4213,7 +4213,17 @@
     else body = viewBook();
 
     // 离开自动识别页就停掉轮询，别在别的页面白跑请求
-    if (r.view === "auto") startPendingPoll(); else stopPendingPoll();
+    /* 进「自动识别」页立刻拉一次待确认。
+
+       以前这里只启动 8 秒轮询，首次进入什么都不拉——用户点通知跳转过来，
+       看到的是一个空页面，以为没识别到，就退出去了，等 8 秒轮询到的时候人已经走了。
+       这就是"点通知进来没东西"的真正原因。 */
+    if (r.view === "auto") {
+      startPendingPoll();
+      setTimeout(function () { loadPendingRaw(); }, 0);
+    } else {
+      stopPendingPoll();
+    }
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
