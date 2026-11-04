@@ -3217,3 +3217,12 @@ html, body { overscroll-behavior-y: contain; }
   background: var(--ink);
   color: #fff;
 }
+
+/* 待确认行：分类胶囊独占一行（放在行内会挤掉商户名和金额） */
+.au-row { flex-wrap: wrap; }
+.au-chips {
+  flex: 1 0 100%;
+  min-width: 0;
+  margin-top: 2px;
+}
+.au-chips .chips-scroll { padding-left: 0; padding-right: 0; }
