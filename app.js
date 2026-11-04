@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold19";
+  var BUILD_ID = "20261104-hold20";
 
   var DEFAULTS = {
     wallets: [
@@ -2555,6 +2555,7 @@
         /* 一按下去就把光标放到手指底下，不用先滑一下才有反应 */
         var ci0 = idxAt(e.touches[0].clientX);
         if (ci0 >= 0) { KL.cross = ci0; klDrawCross(); klPaintTip(); }
+        klCrossArm();   /* 兜底：就算系统不给 touchend，也会自己收 */
       }
     }, { passive: true });
 
@@ -2590,6 +2591,7 @@
         }
         var ci2 = idxAt(cx);
         if (ci2 >= 0 && ci2 !== KL.cross) { KL.cross = ci2; klDrawCross(); klPaintTip(); }
+        klCrossArm();
       }
     }, { passive: false });
 
@@ -2642,6 +2644,13 @@
       drag = null;
     });
     pad.addEventListener("mouseleave", function () { drag = null; });
+
+    /* 系统打断（页面滚了、被上层截走）时补一个 touchend 的收尾 */
+    pad.addEventListener("touchcancel", function () {
+      pinch = null;
+      drag = null;
+      if (KL.cross >= 0) klCrossArm();
+    }, { passive: true });
 
     /* 点图表以外的地方：立刻收起，不用等计时 */
     if (!window._klOutsideBound) {
