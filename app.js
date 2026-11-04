@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold17";
+  var BUILD_ID = "20261104-hold18";
 
   var DEFAULTS = {
     wallets: [
@@ -2305,7 +2305,6 @@
       out.push('<circle cx="' + cx + '" cy="' + Y(cb.c).toFixed(1) + '" r="2.2" fill="#fff" stroke="#0e0e10" stroke-width="1"/>');
     }
 
-    if (KL.dbg) KL.dbg.mv++;
     /* 只换 <svg>：.kl-box 和 .kl-gesture 都不能动。
        手指按着的时候把节点换掉，Chrome 会立刻 touchcancel，拖动就断在半路了。 */
     var svgOld = box2.querySelector("svg.kl-svg");
@@ -2430,17 +2429,6 @@
 
     var drag = null, pinch = null, moved = 0, downAt = 0;
 
-    /* 探针：手机上没法开 WebView 调试，就把事件计数写到副标题上，用 uiautomator 读 */
-    KL.dbg = { d: 0, m: 0, u: 0, c: 0, mv: 0 };
-    function dbg(tag) {
-      if (tag) KL.dbg[tag]++;
-      var cap = document.querySelector(".kl-cap");
-      if (cap) {
-        cap.textContent = "dbg d" + KL.dbg.d + " m" + KL.dbg.m + " u" + KL.dbg.u +
-          " c" + KL.dbg.c + " mv" + KL.dbg.mv + " a" + KL.a + " w" + (KL.b - KL.a);
-      }
-    }
-
     function slotPx() {
       var ser = klSeries();
       var r = box.getBoundingClientRect();
@@ -2449,7 +2437,6 @@
     }
 
     pad.addEventListener("touchstart", function (e) {
-      dbg("d");
       if (e.touches.length === 2) {
         var dx = e.touches[0].clientX - e.touches[1].clientX;
         var dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -2466,7 +2453,6 @@
     }, { passive: true });
 
     pad.addEventListener("touchmove", function (e) {
-      dbg("m");
       if (pinch && e.touches.length === 2) {
         e.preventDefault();
         var dx2 = e.touches[0].clientX - e.touches[1].clientX;
@@ -2491,7 +2477,6 @@
     }, { passive: false });
 
     pad.addEventListener("touchend", function () {
-      dbg("u");
       if (pinch) { pinch = null; return; }
       if (drag && moved < 6 && Date.now() - downAt < 400) {
         var ci = idxAt(drag.x);
@@ -2545,7 +2530,7 @@
     var ready = KL.code === code && KL.bars && KL.bars.length;
     return '<div class="card ov-card">' +
       '<div class="card-title">日 K' +
-        '<span class="kl-cap">拖动平移 · 双指缩放 · 点一下看当天</span>' +
+        '<span class="kl-cap">点一下看当天 · ‹ － ＋ › 翻看 · 也能拖动/捏合</span>' +
       "</div>" +
       '<div class="kl-host" data-code="' + esc(code) + '">' +
         '<div class="kl-tip" hidden></div>' +
@@ -2558,6 +2543,10 @@
                 ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' + esc(code) + '">重试</span>')) +
         "</div>" +
         '<div class="kl-tools">' +
+          '<span class="kl-nav" data-act="klPanPrev">‹</span>' +
+          '<span class="kl-nav" data-act="klZoomOut">－</span>' +
+          '<span class="kl-nav" data-act="klZoomIn">＋</span>' +
+          '<span class="kl-nav" data-act="klPanNext">›</span>' +
           '<span class="kl-r" data-act="klRange" data-n="20">1月</span>' +
           '<span class="kl-r" data-act="klRange" data-n="60">3月</span>' +
           '<span class="kl-r" data-act="klRange" data-n="250">1年</span>' +
@@ -6493,6 +6482,15 @@
       location.hash = "#/holdingnew";
     }
     else if (act === "sdKlineReload") klLoad(el.getAttribute("data-code") || "", true);
+    else if (act === "klZoomIn" || act === "klZoomOut") {
+      /* 按钮缩放：手机上万一手势被系统截走，这两个按钮一定点得动 */
+      var wNow = KL.b - KL.a;
+      klZoom(act === "klZoomIn" ? wNow * 0.68 : wNow * 1.45, 0.5);
+    }
+    else if (act === "klPanPrev" || act === "klPanNext") {
+      var wP = KL.b - KL.a;
+      klPanBy(Math.round(wP * 0.7) * (act === "klPanPrev" ? -1 : 1));
+    }
     else if (act === "klRange") {
       var want = Number(el.getAttribute("data-n")) || 0;
       var total = (KL.bars && KL.bars.length) || 0;
