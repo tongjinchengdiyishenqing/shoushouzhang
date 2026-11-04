@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold6";
+  var BUILD_ID = "20261104-hold7";
 
   var DEFAULTS = {
     wallets: [
@@ -4246,11 +4246,6 @@
         ? '<div class="card ov-card"><div class="card-title">这一版改了什么</div>' +
           '<div class="fine-inline" style="padding:0 18px 16px">' + esc(latest.notes) + "</div></div>"
         : "") +
-      '<div class="card ov-card"><div class="card-title">数据在哪</div>' +
-        '<div class="list-row"><span>账本存放</span><span class="hint">本机 localStorage</span></div>' +
-        '<div class="list-row"><span>联网用在哪</span><span class="hint">行情、同步、识别</span></div>' +
-        '<div class="list-row"><span>加密</span><span class="hint">上传前在本机加密</span></div>' +
-      "</div>" +
       '<div class="card ov-card"><div class="card-title">条款</div>' +
         '<a class="list-row" href="privacy.html"><span>隐私政策与用户协议</span><span class="hint">›</span></a>' +
         '<a class="list-row" href="guide.html"><span>新手指引</span><span class="hint">›</span></a>' +
