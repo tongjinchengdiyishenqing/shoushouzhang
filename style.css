@@ -3226,3 +3226,13 @@ html, body { overscroll-behavior-y: contain; }
   margin-top: 2px;
 }
 .au-chips .chips-scroll { padding-left: 0; padding-right: 0; }
+/* 胶囊前面的小标题（类型 / 分类 / 从 / 到） */
+.chips-label {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  margin-right: 2px;
+}
+.au-chips { align-items: center; display: flex; gap: 6px; }
+.au-chips .chips-scroll { flex: 1; min-width: 0; }
