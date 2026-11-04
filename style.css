@@ -3529,10 +3529,37 @@ html, body { overscroll-behavior-y: contain; }
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+.kl-periods {
+  display: flex;
+  gap: 4px;
+  padding: 6px 18px 2px;
+}
+.kl-p {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: center;
+  cursor: pointer;
+}
+.kl-p.on {
+  background: #e7f2f8;
+  color: var(--accent);
+}
 .kl-tools {
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 6px 18px 14px;
+  flex-wrap: wrap;
+}
+.kl-hint {
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
 .kl-r {
   flex: 0 0 auto;
