@@ -113,7 +113,7 @@
   .tbl td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.045);color:var(--txt)}
   .tbl tr:last-child td{border-bottom:0}
   .tbl .id{color:var(--dim-2);font-variant-numeric:tabular-nums}
-  .tbl .who{font-weight:650;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tbl .who{font-weight:650;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tbl .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;
     background:rgba(52,211,153,.14);color:var(--accent-2)}
@@ -128,6 +128,7 @@
   .ev-t{font-size:12.5px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ev-m{font-size:11px;color:var(--dim-2);margin-top:1px}
   .ev-a{font-size:11px;color:var(--dim-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+  @media (max-width:560px){ .ev-a{display:none} .ev{grid-template-columns:20px 1fr} }
 
   .empty{padding:26px 8px;text-align:center;color:var(--dim-2);font-size:12.5px}
 
@@ -451,7 +452,13 @@
     var skip = w < 420 ? 3 : 2;
     for (var m = 0; m < trend.length; m++) {
       if (m === 0) continue;   // 第一个和 y 轴的 0 会叠在一起
-      if (m % skip !== 0 && m !== trend.length - 1) continue;
+      var isLastLbl = m === trend.length - 1;
+      if (isLastLbl) {
+        // 最后一个点单独标；和上一个标签离得太近就跳过，窄屏会粘成一个字
+        if (x(m) - x(Math.floor(m / skip) * skip) < 34) continue;
+      } else if (m % skip !== 0) {
+        continue;
+      }
       svg.push('<text x="' + x(m).toFixed(1) + '" y="' + (h - 6) +
         '" fill="#5A7183" font-size="9.5" text-anchor="middle">' + esc(trend[m].day) + "</text>");
     }
@@ -600,7 +607,7 @@
 
       $("k_dev").textContent = s.devices.activeToday;
       $("k_dev_d").innerHTML = "共 <b>" + s.devices.total + "</b> 台 ・ 7日 <b>" + s.devices.activeWeek + "</b>";
-      $("k_dev_dod").innerHTML = '<span class="flat">按天见访问</span>';
+      $("k_dev_dod").innerHTML = "";
 
       $("k_uv").textContent = s.pageview.uvToday;
       $("k_uv_d").innerHTML = "累计 <b>" + s.pageview.pvTotal + "</b> 次";
