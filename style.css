@@ -3479,6 +3479,7 @@ html, body { overscroll-behavior-y: contain; }
   padding: 0 0 4px;
 }
 .kl-box {
+  position: relative;
   margin: 2px 10px 0;
   touch-action: none;          /* 图上拖动只平移，不带动页面滚 */
   -webkit-user-select: none;
@@ -3489,6 +3490,16 @@ html, body { overscroll-behavior-y: contain; }
   display: block;
   width: 100%;
   height: auto;
+}
+/* 手势层：永远不重绘，手指按在上面时底层 SVG 随便换都不会 touchcancel */
+.kl-gesture {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  touch-action: none;
 }
 .kl-tip {
   position: absolute;
