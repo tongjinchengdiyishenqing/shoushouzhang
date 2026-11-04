@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold22";
+  var BUILD_ID = "20261104-hold23";
 
   var DEFAULTS = {
     wallets: [
@@ -2239,6 +2239,7 @@
 
   /* 光标停留计时：松手后 1.8 秒自动收起。一直悬着会挡住 K 线，但立刻消失又看不清数字。 */
   var KL_CROSS_HOLD = 1800;
+  KL.crossAt = 0;   // 光标最后一次更新时间，超时就当没有
   var _klCrossTimer = null;
 
   function klCrossClearTimeout() {
@@ -2246,6 +2247,7 @@
   }
 
   function klCrossArm() {
+    KL.crossAt = Date.now();
     klCrossClearTimeout();
     _klCrossTimer = setTimeout(function () {
       _klCrossTimer = null;
@@ -2262,6 +2264,11 @@
     if (!g || !geo) return;
     var bars = KL.bars;
     if (!bars || KL.cross < 0 || KL.cross >= bars.length) {
+      g.style.display = "none";
+      return;
+    }
+    if (KL.crossAt && Date.now() - KL.crossAt > KL_CROSS_HOLD + 700) {
+      KL.cross = -1;
       g.style.display = "none";
       return;
     }
@@ -2426,6 +2433,7 @@
       }
     }
 
+    if (KL.cross >= 0 && KL.crossAt && Date.now() - KL.crossAt > KL_CROSS_HOLD + 700) KL.cross = -1;
     if (KL.cross >= 0 && KL.cross < bars.length) {
       var b = bars[KL.cross];
       var prev = KL.cross > 0 ? bars[KL.cross - 1].c : b.o;
@@ -2570,7 +2578,7 @@
       drag = { x: x, a: KL.a, b: KL.b, cross: KL.cross >= 0 };
       if (drag.cross) {
         var ci0 = idxAt(x);
-        if (ci0 >= 0) { KL.cross = ci0; klDrawCross(); klPaintTip(); }
+        if (ci0 >= 0) { KL.cross = ci0; KL.crossAt = Date.now(); klDrawCross(); klPaintTip(); }
         klCrossArm();
       }
     }
@@ -2590,7 +2598,7 @@
         if (rel < 0.05 && KL.a > 0) klPanBy(-Math.max(1, Math.round((KL.b - KL.a) * 0.12)));
         else if (rel > 0.95 && KL.b < KL.bars.length) klPanBy(Math.max(1, Math.round((KL.b - KL.a) * 0.12)));
         var ci = idxAt(x);
-        if (ci >= 0 && ci !== KL.cross) { KL.cross = ci; klDrawCross(); klPaintTip(); }
+        if (ci >= 0 && ci !== KL.cross) { KL.cross = ci; KL.crossAt = Date.now(); klDrawCross(); klPaintTip(); }
         klCrossArm();
         return;
       }
@@ -2610,6 +2618,7 @@
       if (moved < 6 && Date.now() - downAt < 400) {
         /* 点一下：直接把光标放到那天（不进开关逻辑，避免"上次没退干净"影响这次） */
         KL.cross = ci >= 0 ? ci : -1;
+        KL.crossAt = Date.now();
         drag = null;
         klDrawCross();
         klPaintTip();
