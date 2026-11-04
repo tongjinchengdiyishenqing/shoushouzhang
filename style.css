@@ -2957,3 +2957,34 @@ a.list-row:last-child { border-bottom: 0; }
 .sd-chg.up { color: var(--pos); }
 .sd-chg.down { color: var(--neg); }
 .sd-close { color: var(--ink-3); font-weight: 600; }
+
+/* ============================================================
+   到手股息率：毛 / 净 的对照表
+   差值用灰字，别抢主数字的注意力；税率行用说明文字交代清楚
+   ============================================================ */
+.sd-yield { padding: 4px 18px 2px; }
+.sd-y-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.sd-y-row:last-child { border-bottom: 0; }
+.sd-y-row > span { flex: 1; min-width: 0; }
+.sd-y-row > b {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.sd-diff {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
