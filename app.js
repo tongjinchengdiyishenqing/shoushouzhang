@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold12";
+  var BUILD_ID = "20261104-hold13";
 
   var DEFAULTS = {
     wallets: [
@@ -2068,6 +2068,8 @@
     return out;
   }
 
+  var KL_TIMEOUT = 25000;   // 全量日线几百 KB，慢网给足 25 秒，超时也要说清楚
+
   function klLoad(code, force) {
     if (!code) return;
     if (!force && KL.code === code && KL.bars && KL.bars.length) return;
@@ -2075,13 +2077,30 @@
     KL.loading = true;
     KL.code = code;
     KL.err = "";
+    KL.slow = false;
     render();
-    apiFetch("/kline-history/" + encodeURIComponent(code), {})
+
+    var t0 = Date.now();
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      KL.slow = true;
+      if (ctrl) ctrl.abort();
+    }, KL_TIMEOUT);
+
+    function fail(msg) {
+      clearTimeout(timer);
+      KL.loading = false;
+      KL.err = msg;
+      render();
+    }
+
+    apiFetch("/kline-history/" + encodeURIComponent(code), ctrl ? { signal: ctrl.signal } : {})
       .then(function (r) {
-        if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
+        if (!r.ok) throw new Error("HTTP " + r.status + " " + errText(r.body, ""));
         return r.body;
       })
       .then(function (j) {
+        clearTimeout(timer);
         KL.loading = false;
         var bars = klBarsFrom(j);
         if (!bars.length) {
@@ -2101,9 +2120,12 @@
         render();
       })
       .catch(function (e) {
-        KL.loading = false;
-        KL.err = (e && e.message) || "K 线拉不到";
-        render();
+        var msg = (e && e.message) || "";
+        if (KL.slow || /abort/i.test(msg)) {
+          fail("拉取超时（" + Math.round((Date.now() - t0) / 1000) + " 秒没回来，网络太慢）");
+        } else {
+          fail("K 线拉不到" + (msg ? "：" + msg : ""));
+        }
       });
   }
 
