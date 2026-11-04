@@ -147,11 +147,20 @@
   .login .card{padding:26px 22px;box-shadow:var(--shadow-lg)}
   .login h1{font-size:19px;margin:0 0 6px;letter-spacing:-.2px;color:var(--txt)}
   .login p{color:var(--dim);font-size:12.5px;margin:0 0 18px;line-height:1.6}
-  .login input{width:100%;padding:12px 14px;border-radius:9px;border:1px solid var(--line-2);
+  .login .ipt{width:100%;padding:12px 14px;border-radius:9px;border:1px solid var(--line-2);
     background:#FBFCFE;color:var(--txt);font-size:15px;font-family:inherit;outline:none;
-    letter-spacing:.04em;text-align:center;transition:border-color .15s,background .15s}
-  .login input:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(2,132,199,.10)}
-  .login input::placeholder{color:var(--dim-2);letter-spacing:0}
+    letter-spacing:.02em;transition:border-color .15s,background .15s,box-shadow .15s}
+  .login .ipt + .ipt, .login .pwd-wrap{margin-top:9px}
+  .login .ipt:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(2,132,199,.10)}
+  .login .ipt::placeholder{color:var(--dim-2)}
+  .pwd-wrap{position:relative}
+  .pwd-wrap .ipt{padding-right:58px}
+  .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;
+    color:var(--dim);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
+    padding:8px 9px;border-radius:7px}
+  .eye:hover{background:var(--surface-2);color:var(--txt)}
+  .who-badge{font-size:12px;color:var(--dim);font-weight:600;white-space:nowrap}
+  @media (max-width:560px){ .who-badge{display:none} }
   .login button{width:100%;margin-top:10px;padding:11px;font-size:14px;
     background:var(--accent);color:#fff;font-weight:700}
   .login button:hover{background:#0369A1}
@@ -183,9 +192,13 @@
 <div id="login" class="login hide">
   <div class="card">
     <h1>长流 · 运营看板</h1>
-    <p>输入看板钥匙（后端 .env 里的 <code>ADMIN_KEY</code>）。<br>钥匙只存在这台设备上。</p>
-    <input id="key" type="password" placeholder="看板钥匙" autocomplete="off">
-    <button id="enter" class="btn">进入</button>
+    <p>用后台账号登录。登录状态保留 12 小时，过期要重新登。</p>
+    <input id="user" class="ipt" type="text" placeholder="账号" autocomplete="username" autocapitalize="off" autocorrect="off">
+    <div class="pwd-wrap">
+      <input id="pwd" class="ipt" type="password" placeholder="密码" autocomplete="current-password">
+      <button id="eye" class="eye" type="button" aria-label="显示密码">显示</button>
+    </div>
+    <button id="enter" class="btn">登录</button>
     <div class="err" id="err"></div>
   </div>
 </div>
@@ -201,9 +214,10 @@
         </div>
       </div>
       <div class="spacer"></div>
+      <span class="who-badge" id="who">—</span>
       <button id="auto" class="btn on">自动 10s</button>
       <button id="refresh" class="btn ghost">刷新</button>
-      <button id="logout" class="btn ghost">换钥匙</button>
+      <button id="logout" class="btn ghost">退出</button>
     </div>
   </div>
 
@@ -335,28 +349,54 @@
     pv: { name: "页面访问", color: "#8B5CF6" }
   };
 
-  var KEY_STORE = "cl.admin.key";
+  var AUTH_STORE = "cl.admin.auth";
+  var LEGACY_KEY = "cl.admin.key";
   var $ = function (id) { return document.getElementById(id); };
   var timer = null, autoOn = true, metric = "users", stats = null, breakdown = null, busy = false;
 
-  function key() { try { return localStorage.getItem(KEY_STORE) || ""; } catch (e) { return ""; } }
-  function setKey(v) { try { v ? localStorage.setItem(KEY_STORE, v) : localStorage.removeItem(KEY_STORE); } catch (e) {} }
+  /* 登录态就三样：token、用户名、过期时间。token 是后端 HMAC 签的，
+     前端改不了也伪造不了；过期了后端会回 401，我们清掉重新登。 */
+  function auth() {
+    try { return JSON.parse(localStorage.getItem(AUTH_STORE) || "null"); } catch (e) { return null; }
+  }
+  function setAuth(a) {
+    try { a ? localStorage.setItem(AUTH_STORE, JSON.stringify(a)) : localStorage.removeItem(AUTH_STORE); } catch (e) {}
+  }
+  function token() { var a = auth(); return (a && a.token) || ""; }
+  function tokenAlive() {
+    var a = auth();
+    if (!a || !a.token) return false;
+    if (!a.exp) return true;
+    return a.exp * 1000 > Date.now();
+  }
 
-  function api(path) {
-    return fetch(API + path, { headers: { "X-Admin-Key": key() }, cache: "no-store" })
-      .then(function (r) {
-        return r.text().then(function (t) {
-          var j = null;
-          try { j = t ? JSON.parse(t) : null; } catch (e) {}
-          if (r.status === 403 || r.status === 404) {
-            var e = new Error("钥匙不对，或后端没配 ADMIN_KEY");
-            e.badKey = true;
-            throw e;
-          }
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return j;
-        });
+  function api(path, opts) {
+    var o = opts || {};
+    var headers = { "X-Admin-Token": token() };
+    if (o.body) headers["Content-Type"] = "application/json";
+    return fetch(API + path, {
+      method: o.method || "GET",
+      headers: headers,
+      body: o.body,
+      cache: "no-store"
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = null;
+        try { j = t ? JSON.parse(t) : null; } catch (e) {}
+        if (r.status === 401) {
+          var e = new Error((j && j.detail) || "登录已过期");
+          e.needLogin = true;
+          throw e;
+        }
+        if (r.status === 404) {
+          var e2 = new Error("后端没开看板接口");
+          e2.needLogin = true;
+          throw e2;
+        }
+        if (!r.ok) throw new Error((j && j.detail) || ("HTTP " + r.status));
+        return j;
       });
+    });
   }
 
   function esc(s) {
@@ -657,7 +697,7 @@
       busy = false;
       $("dot").className = "dot off";
       $("stamp").textContent = "拉不到数据：" + (e.message || e);
-      if (e.badKey) showLogin(e.message);
+      if (e.needLogin) { setAuth(null); showLogin(e.message); }
     });
   }
 
@@ -669,25 +709,61 @@
     $("app").classList.add("hide");
     $("login").classList.remove("hide");
     $("err").textContent = msg || "";
-    setTimeout(function () { $("key").focus(); }, 60);
+    setTimeout(function () {
+      var u = $("user");
+      if (u && !u.value) u.focus(); else if ($("pwd")) $("pwd").focus();
+    }, 60);
   }
   function showApp() {
     $("login").classList.add("hide");
     $("app").classList.remove("hide");
+    var a = auth();
+    var w = $("who");
+    if (w) w.textContent = a && a.user ? "@" + a.user : "";
     start();
   }
 
-  $("enter").addEventListener("click", function () {
-    var v = ($("key").value || "").trim();
-    if (!v) { $("err").textContent = "先填钥匙"; return; }
-    setKey(v);
-    api("/admin/stats").then(function () { showApp(); })
-      .catch(function (e) {
-        setKey("");
-        $("err").textContent = e.badKey ? "钥匙不对，看后端的 ADMIN_KEY" : ("连不上：" + e.message);
+  function doLogin() {
+    var u = ($("user").value || "").trim();
+    var p = $("pwd").value || "";
+    if (!u || !p) { $("err").textContent = "账号和密码都要填"; return; }
+    $("enter").disabled = true;
+    $("enter").textContent = "登录中…";
+    $("err").textContent = "";
+    fetch(API + "/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password: p })
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = null;
+        try { j = t ? JSON.parse(t) : null; } catch (e) {}
+        if (!r.ok) throw new Error((j && j.detail) || ("登录失败 HTTP " + r.status));
+        return j;
       });
+    }).then(function (j) {
+      setAuth({ token: j.token, user: j.user, exp: j.expiresAt });
+      $("pwd").value = "";
+      $("enter").disabled = false;
+      $("enter").textContent = "登录";
+      showApp();
+    }).catch(function (e) {
+      $("enter").disabled = false;
+      $("enter").textContent = "登录";
+      $("err").textContent = String(e.message || e);
+    });
+  }
+
+  $("enter").addEventListener("click", doLogin);
+  ["user", "pwd"].forEach(function (id) {
+    $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
   });
-  $("key").addEventListener("keydown", function (e) { if (e.key === "Enter") $("enter").click(); });
+  $("eye").addEventListener("click", function () {
+    var p = $("pwd");
+    var show = p.type === "password";
+    p.type = show ? "text" : "password";
+    $("eye").textContent = show ? "隐藏" : "显示";
+  });
 
   $("refresh").addEventListener("click", function () { load(); });
   $("auto").addEventListener("click", function () {
@@ -696,7 +772,12 @@
     $("auto").textContent = autoOn ? "自动 10s" : "已暂停";
     autoOn ? start() : stop();
   });
-  $("logout").addEventListener("click", function () { setKey(""); showLogin(""); });
+  $("logout").addEventListener("click", function () {
+    setAuth(null);
+    stats = null;
+    showLogin("已退出");
+    $("user").value = "";
+  });
 
   Array.prototype.forEach.call(document.querySelectorAll("#seg button"), function (b) {
     b.addEventListener("click", function () {
@@ -726,7 +807,11 @@
     if (document.hidden) stop(); else if (key()) start();
   });
 
-  if (key()) showApp(); else showLogin("");
+  // 早期版本存的是明文钥匙，清掉，别留个没用的串在浏览器里
+  try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+
+  if (tokenAlive()) showApp();
+  else { setAuth(null); showLogin(""); }
 })();
 </script>
 </body>
