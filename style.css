@@ -3367,3 +3367,64 @@ html, body { overscroll-behavior-y: contain; }
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 应用内确认弹层（替掉安卓 WebView 会吞掉的原生 confirm） ---------- */
+.cf-mask {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 400;
+  background: rgba(14, 14, 16, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 26px;
+  animation: cfIn 0.16s ease-out;
+}
+.cf-box {
+  width: 100%;
+  max-width: 340px;
+  padding: 22px 20px 16px;
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 18px 50px rgba(14, 14, 16, 0.26);
+  animation: cfPop 0.18s ease-out;
+}
+.cf-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.cf-body {
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-line;
+  word-break: break-word;
+}
+.cf-acts {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.cf-btn {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--paper-2);
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cf-btn.ok { background: var(--ink); color: #fff; }
+.cf-btn.danger { background: var(--neg); color: #fff; }
+.cf-btn:active { opacity: 0.85; }
+@keyframes cfIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cfPop { from { transform: scale(0.94); opacity: 0.6; } to { transform: scale(1); opacity: 1; } }
