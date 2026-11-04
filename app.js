@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold14";
+  var BUILD_ID = "20261104-hold15";
 
   var DEFAULTS = {
     wallets: [
@@ -2305,9 +2305,12 @@
       out.push('<circle cx="' + cx + '" cy="' + Y(cb.c).toFixed(1) + '" r="2.2" fill="#fff" stroke="#0e0e10" stroke-width="1"/>');
     }
 
-    /* 只换图表本身：外层 .kl-tip / .kl-stat / .kl-tools 要留着，
-       而且 .kl-box 这个节点不能换（手势绑在它身上，换了就失灵）。 */
-    box2.innerHTML = '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>";
+    /* 只换 <svg>：.kl-box 和 .kl-gesture 都不能动。
+       手指按着的时候把节点换掉，Chrome 会立刻 touchcancel，拖动就断在半路了。 */
+    var svgOld = box2.querySelector("svg.kl-svg");
+    if (svgOld && svgOld.parentNode) svgOld.parentNode.removeChild(svgOld);
+    box2.insertAdjacentHTML("afterbegin",
+      '<svg class="kl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>");
     klPaintTip();
   }
 
@@ -2407,7 +2410,8 @@
     if (host._klBound) return;
     host._klBound = true;
     var box = host.querySelector(".kl-box");
-    if (!box) return;
+    var pad = host.querySelector(".kl-gesture");
+    if (!box || !pad) return;
 
     function vx(clientX) {
       var r = box.getBoundingClientRect();
@@ -2432,7 +2436,7 @@
       return ((340 - 4 - 28) / Math.max(1, ser.items.length)) * scale;
     }
 
-    box.addEventListener("touchstart", function (e) {
+    pad.addEventListener("touchstart", function (e) {
       if (e.touches.length === 2) {
         var dx = e.touches[0].clientX - e.touches[1].clientX;
         var dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -2448,7 +2452,7 @@
       }
     }, { passive: true });
 
-    box.addEventListener("touchmove", function (e) {
+    pad.addEventListener("touchmove", function (e) {
       if (pinch && e.touches.length === 2) {
         e.preventDefault();
         var dx2 = e.touches[0].clientX - e.touches[1].clientX;
@@ -2472,7 +2476,7 @@
       }
     }, { passive: false });
 
-    box.addEventListener("touchend", function () {
+    pad.addEventListener("touchend", function () {
       if (pinch) { pinch = null; return; }
       if (drag && moved < 6 && Date.now() - downAt < 400) {
         var ci = idxAt(drag.x);
@@ -2485,7 +2489,7 @@
     }, { passive: true });
 
     // 电脑上：滚轮缩放，按住拖也能平移
-    box.addEventListener("wheel", function (e) {
+    pad.addEventListener("wheel", function (e) {
       e.preventDefault();
       var r = box.getBoundingClientRect();
       var ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
@@ -2493,12 +2497,12 @@
       klZoom((KL.b - KL.a) * factor, ratio);
     }, { passive: false });
 
-    box.addEventListener("mousedown", function (e) {
+    pad.addEventListener("mousedown", function (e) {
       downAt = Date.now();
       moved = 0;
       drag = { x: e.clientX, a: KL.a, b: KL.b };
     });
-    box.addEventListener("mousemove", function (e) {
+    pad.addEventListener("mousemove", function (e) {
       if (!drag) return;
       var dxm = e.clientX - drag.x;
       if (Math.abs(dxm) > 3) {
@@ -2510,7 +2514,7 @@
         if (a !== KL.a) { KL.a = a; KL.b = a + w; KL.cross = -1; klDraw(); }
       }
     });
-    box.addEventListener("mouseup", function (e) {
+    pad.addEventListener("mouseup", function (e) {
       if (drag && moved < 4 && Date.now() - downAt < 400) {
         var ci = idxAt(e.clientX);
         KL.cross = (KL.cross === ci) ? -1 : ci;
@@ -2518,7 +2522,7 @@
       }
       drag = null;
     });
-    box.addEventListener("mouseleave", function () { drag = null; });
+    pad.addEventListener("mouseleave", function () { drag = null; });
   }
 
   /* 页面重绘后重新挂载：数据在就重画，没数据就拉一次 */
@@ -2815,7 +2819,7 @@
       "</div>" +
       '<div class="kl-host" data-code="' + esc(code) + '">' +
         '<div class="kl-tip" hidden></div>' +
-        '<div class="kl-box"></div>' +
+        '<div class="kl-box"><div class="kl-gesture"></div></div>' +
         '<div class="kl-stat">' +
           (klReady ? ""
             : (KL.loading
