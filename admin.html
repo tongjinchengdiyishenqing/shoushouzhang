@@ -43,7 +43,8 @@
     justify-content:center;font-size:13px;font-weight:800;color:#fff;
     box-shadow:0 1px 2px rgba(14,53,80,.25)}
   .bt{font-size:15px;font-weight:700;letter-spacing:-.1px;white-space:nowrap;color:var(--txt)}
-  .bs{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:5px;margin-top:1px}
+  .bs{font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:5px;margin-top:1px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-2);
     box-shadow:0 0 0 3px rgba(16,185,129,.16)}
   .dot.off{background:var(--bad);box-shadow:0 0 0 3px rgba(220,38,38,.14)}
@@ -612,7 +613,7 @@
       var yest = tr[tr.length - 2] || {};
 
       $("dot").className = "dot";
-      $("stamp").textContent = bj(s.at) + " 更新（北京）";
+      $("stamp").textContent = bj(s.at) + " 更新";
 
       $("k_users").textContent = s.users.total;
       $("k_users_d").innerHTML = "今日 <b>" + s.users.today + "</b> ・ 7日 <b>" + s.users.week + "</b>";
