@@ -2184,7 +2184,7 @@
       }).join("");
       syncBox = '<div class="sd-sync">' +
         '<div class="sd-sync-h">按除权日记 ' + st.sync.length + " 笔到账</div>" +
-        '<select data-act="sdWallet">' + wopts + "</select>" +
+        chipsHtml(db.wallets || [], stockState().walletId || (db.wallets[0] && db.wallets[0].id), "sdWalletPick", 0) +
         st.sync.map(function (x) {
           return '<div class="sd-div-row"><span class="d">' + esc(x.exDate) + "</span>" +
             '<span class="v">每股 ¥' + x.dps.toFixed(3) + "</span>" +
@@ -2390,16 +2390,30 @@
      20 秒一次：隧道一次往返几百毫秒，这个频率成本可忽略，又不至于太吵。
      silent=true 时只有停在这一页才重绘，不会打断正在看详情的用户。 */
   var _dcTimer = null;
+  var _dcVer = "";
 
   function startDecidePoll() {
     if (_dcTimer) return;
+    /* 3 秒问一次"变了吗"。
+
+       直接每 3 秒拉一遍列表（20 条帖子，几十 KB）太重；
+       这个探测接口只回 {maxId, count}，几十字节。
+       值没变就什么都不做，变了才去拉全量——
+       用户的感觉是"别人一投票我这边就动了"，实际成本几乎为零。 */
     _dcTimer = setInterval(function () {
       var h = parseHash();
       if (h.view !== "decide") { stopDecidePoll(); return; }
-      if (Number(h.params.id || 0)) return;   // 详情页有自己的加载，不刷列表
+      if (Number(h.params.id || 0)) return;   // 详情页自己有加载
       if (document.hidden) return;
-      loadDecideFeed(false, true);
-    }, 20000);
+      var sc = decideState().scope === "mine" ? "mine" : "all";
+      apiFetch("/decisions/version?scope=" + sc, {}).then(function (r) {
+        if (!r.ok || !r.body) return;
+        var v = r.body.maxId + ":" + r.body.count;
+        if (_dcVer === v) return;
+        _dcVer = v;
+        loadDecideFeed(false, true);
+      }).catch(function () {});
+    }, 3000);
   }
 
   function stopDecidePoll() {
@@ -2408,11 +2422,13 @@
 
   function startPendingPoll() {
     if (_rawTimer) return;
+    /* 3 秒一次：付完钱点通知进来，最多等 3 秒就能看到那笔。
+       这个接口本来就只有几十条文本，比列表轻得多。 */
     _rawTimer = setInterval(function () {
       if (parseHash().view !== "auto") { stopPendingPoll(); return; }
       if (document.hidden) return;
       loadPendingRaw();
-    }, 8000);
+    }, 3000);
   }
 
   function stopPendingPoll() {
@@ -2774,8 +2790,7 @@
         '<div class="au-right">' +
           '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
-          '<select class="au-tag" data-act="autoRemoteTag" data-id="' + i + '">' +
-            tagOptions(it.flow, it.tagId) + "</select>" +
+          chipsHtml(tagsOf(it.flow), it.tagId, "autoRemoteTag", i) +
         "</div>" +
         '<span class="au-del" data-act="autoRemoteDrop" data-id="' + i + '">✕</span>' +
       "</div>";
@@ -2798,8 +2813,7 @@
         '<div class="au-right">' +
           '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
-          '<select class="au-tag" data-act="autoTag" data-id="' + i + '">' +
-            tagOptions(it.flow, it.tagId) + "</select>" +
+          chipsHtml(tagsOf(it.flow), it.tagId, "autoTag", i) +
         "</div>" +
         '<span class="au-del" data-act="autoDrop" data-id="' + i + '">✕</span>' +
       "</div>";
@@ -3318,6 +3332,34 @@
     "</div>";
   }
 
+  /* 停在详情页时，评论也要自己长出来——别人刚回的帖子，
+     不刷新就看不到，用户会以为没人理他。5 秒一次，只拉这一条。 */
+  var _cmtTimer = null;
+
+  function startCommentPoll(id) {
+    stopCommentPoll();
+    _cmtTimer = setInterval(function () {
+      var h = parseHash();
+      var curId = Number(h.params.id || 0);
+      if (h.view !== "decide" || curId !== id) { stopCommentPoll(); return; }
+      if (document.hidden) return;
+      apiFetch("/decisions/" + id, {}).then(function (r) {
+        if (!r.ok || !r.body) return;
+        var dd = decideState();
+        if (dd.detailId !== id) return;
+        var before = ((dd.detail && dd.detail.comments) || []).length;
+        var after = ((r.body.comments) || []).length;
+        if (after === before) return;      // 没新增就别重绘，免得输入时被打断
+        dd.detail = r.body;
+        render();
+      }).catch(function () {});
+    }, 5000);
+  }
+
+  function stopCommentPoll() {
+    if (_cmtTimer) { clearInterval(_cmtTimer); _cmtTimer = null; }
+  }
+
   function loadDecisionDetail(id) {
     var d = decideState();
     d.detailId = id;
@@ -3336,6 +3378,7 @@
       }
       d.detail = r.body;
       render();
+      startCommentPoll(id);
     }).catch(function () {
       if (decideState().detailId !== id) return;
       d.detailLoading = false;
@@ -4282,7 +4325,9 @@
     } else {
       stopPendingPoll();
     }
-    if (r.view === "decide") startDecidePoll(); else stopDecidePoll();
+    if (r.view === "decide") startDecidePoll(); else { stopDecidePoll(); stopCommentPoll(); }
+    var _dId = Number(r.params && r.params.id || 0);
+    if (r.view === "decide" && _dId) startCommentPoll(_dId); else if (!_dId) stopCommentPoll();
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
@@ -5566,6 +5611,17 @@
     var el = ev.target;
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "sdWallet") { stockState().walletId = el.value; return; }
+    /* 胶囊点击（原生 select 的 change 事件已不再触发） */
+    if (act === "sdWalletPick") { stockState().walletId = el.getAttribute("data-v") || ""; render(); return; }
+    if (act === "autoTag" || act === "autoRemoteTag") {
+      var aChips = autoState();
+      var iChips = Number(el.getAttribute("data-id"));
+      var vChips = el.getAttribute("data-v") || "";
+      var bucket = act === "autoTag" ? aChips.items : aChips.remote;
+      if (bucket && bucket[iChips]) bucket[iChips].tagId = vChips;
+      render();
+      return;
+    }
     if (act === "autoTag") {
       var a = autoState();
       var i = Number(el.getAttribute("data-id"));
