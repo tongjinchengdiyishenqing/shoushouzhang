@@ -571,19 +571,20 @@
   function load() {
     if (busy) return;
     busy = true;
-    var s0 = null, b0 = null;
-    api("/admin/stats").then(function (s) {
-      s0 = s; stats = s;
-      return Promise.all([
-        api("/admin/users?limit=12"),
-        api("/admin/feed?limit=18"),
-        api("/admin/breakdown")
-      ]);
-    }).then(function (res) {
-      var users = (res[0] && res[0].items) || [];
-      var feed = (res[1] && res[1].items) || [];
-      breakdown = res[2] || {};
-      var s = s0;
+    /* 四个接口并行发。
+       原来是 stats 回来之后才发另外三个，隧道往返 500ms+ 的话首屏要等两轮；
+       并行之后一次往返就全齐，看板打开快一倍。 */
+    Promise.all([
+      api("/admin/stats"),
+      api("/admin/users?limit=12"),
+      api("/admin/feed?limit=18"),
+      api("/admin/breakdown")
+    ]).then(function (res) {
+      var s = res[0] || {};
+      stats = s;
+      var users = (res[1] && res[1].items) || [];
+      var feed = (res[2] && res[2].items) || [];
+      breakdown = res[3] || {};
       var tr = s.trend || [];
       var today = tr[tr.length - 1] || {};
       var yest = tr[tr.length - 2] || {};
