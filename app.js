@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold21";
+  var BUILD_ID = "20261104-hold22";
 
   var DEFAULTS = {
     wallets: [
@@ -2046,7 +2046,10 @@
     for (var k = 0; k < n; k++) {
       var c = j.c[k];
       if (c == null) continue;
-      var o = j.o[k] == null ? c : j.o[k];
+      /* 最新一根常常只有收盘价（盘后补的快照），o/h/l 是空的。
+         拿上一根收盘价当开盘价补出来，否则会画成一根开高低收全等的平条。 */
+      var prevC = out.length ? out[out.length - 1].c : c;
+      var o = j.o[k] == null ? prevC : j.o[k];
       out.push({
         d: j.d[k],
         o: o,
@@ -2614,7 +2617,13 @@
         return;
       }
       drag = null;
-      if (wasCross && KL.cross >= 0) klCrossArm();   // 读数完先留 1.8 秒
+      /* 拖完松手立刻收：不点蜡烛的时候别挂着一块卡片挡图 */
+      if (wasCross) {
+        klCrossClearTimeout();
+        KL.cross = -1;
+        klDrawCross();
+        klPaintTip();
+      }
     }
 
     pad.addEventListener("touchstart", function (e) {
