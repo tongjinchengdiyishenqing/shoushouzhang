@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold5";
+  var BUILD_ID = "20261104-hold6";
 
   var DEFAULTS = {
     wallets: [
@@ -624,7 +624,12 @@
 
   function logoutAccount() {
     if (!auth) return;
-    if (!confirm("退出登录？\n\n本机这份账本会被清除（避免换人用这台设备时看到你的账）。\n数据以云端备份为准，重新登录即可恢复。")) return;
+    confirmApp("退出登录？",
+      "本机这份账本会被清除（避免换人用这台设备时看到你的账）。数据以云端备份为准，重新登录即可恢复。",
+      "退出登录", function () { doLogout(); }, true);
+  }
+
+  function doLogout() {
     toast("正在保存到云端…");
     // 先确保云端是最新的
     syncPush(true).then(function (r) {
@@ -643,16 +648,23 @@
       finishLogout();
     }).catch(function (e) {
       // 推不上去：说清楚后果让用户决定
-      if (!confirm("云端同步失败（" + (e.message || "网络不通") + "）。\n\n本机现有 " +
-          db.entries.length + " 条记录，云端可能不是最新的。\n\n" +
-          "现在退出会清除本机数据，未上传的部分将无法恢复。\n\n仍要退出？")) return;
-      finishLogout("已退出（有数据未上传）");
+      confirmApp("云端同步失败，仍要退出？",
+        "原因：" + (e.message || "网络不通") + "。本机现有 " + db.entries.length +
+        " 条记录，云端可能不是最新的。现在退出会清除本机数据，未上传的部分将无法恢复。",
+        "仍要退出", function () { finishLogout("已退出（有数据未上传）"); }, true);
     });
   }
 
   function deleteAccount() {
-    if (!confirm("注销账号？\n\n云端数据和账号会被永久删除，无法恢复。\n本机账本也会一并清除。")) return;
-    if (!confirm("再确认一次：这个操作不可撤销，确定注销？")) return;
+    confirmApp("注销账号？",
+      "云端数据和账号会被永久删除，无法恢复。本机账本也会一并清除。",
+      "继续", function () {
+        confirmApp("再确认一次", "这个操作不可撤销，确定注销？",
+          "确定注销", function () { doDeleteAccount(); }, true);
+      }, true);
+  }
+
+  function doDeleteAccount() {
     apiFetch("/auth/account", { method: "DELETE" }).then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       auth = null;
@@ -4316,11 +4328,17 @@
     }).length;
     if (used) { toast("「" + w.name + "」还有 " + used + " 笔记录在用，先改到别的账户", null, null, 3000); return; }
     if (db.wallets.length <= 1) { toast("至少留一个账户", null, null, 2400); return; }
-    if (!confirm("删除账户「" + w.name + "」？")) return;
-    db.wallets = db.wallets.filter(function (x) { return x.id !== id; });
-    save();
-    render();
-    toast("已删除");
+    askConfirm({
+      title: "删除账户「" + w.name + "」？",
+      body: "账户下没有记录才能删。删掉之后历史备份里仍然有。",
+      ok: "删除", danger: true,
+      onOK: function () {
+        db.wallets = db.wallets.filter(function (x) { return x.id !== id; });
+        save();
+        render();
+        toast("已删除");
+      }
+    });
   }
 
   /* ================= 分类管理 ================= */
@@ -4406,11 +4424,17 @@
     if (used) { toast("「" + t.name + "」还有 " + used + " 笔记录在用，先改分类", null, null, 3000); return; }
     var sameFlow = db.tags.filter(function (x) { return x.flow === t.flow; });
     if (sameFlow.length <= 1) { toast("这类至少留一个分类", null, null, 2400); return; }
-    if (!confirm("删除分类「" + t.name + "」？")) return;
-    db.tags = db.tags.filter(function (x) { return x.id !== id; });
-    save();
-    render();
-    toast("已删除");
+    askConfirm({
+      title: "删除分类「" + t.name + "」？",
+      body: "分类下没有记录才能删。",
+      ok: "删除", danger: true,
+      onOK: function () {
+        db.tags = db.tags.filter(function (x) { return x.id !== id; });
+        save();
+        render();
+        toast("已删除");
+      }
+    });
   }
 
   /* ================= 搜索 =================
@@ -4891,19 +4915,71 @@
     ui._loaded = false;
   }
 
+  /* ---------- 应用内确认弹层 ----------
+     原生 confirm() 在安卓 WebView 里可能根本不弹（没设 WebChromeClient 时直接返回 false），
+     表现就是"点了没反应、怎么删都删不掉"。所以确认一律走这个弹层：
+     askConfirm 异步回调 onOK；confirmApp 供 "if (!confirmApp(...)) return;" 这种同步写法用，
+     它永远返回 false（让调用处先 return），用户点「确定」后再回调。 */
+  function askConfirm(opts) {
+    closeConfirm();
+    var o = opts || {};
+    var wrap = document.createElement("div");
+    wrap.id = "sz-confirm";
+    wrap.className = "cf-mask";
+    wrap.innerHTML =
+      '<div class="cf-box">' +
+        '<div class="cf-title">' + esc(o.title || "确认") + "</div>" +
+        (o.body ? '<div class="cf-body">' + esc(o.body) + "</div>" : "") +
+        '<div class="cf-acts">' +
+          '<button class="cf-btn" data-cf="0">' + esc(o.cancel || "取消") + "</button>" +
+          '<button class="cf-btn ' + (o.danger ? "danger" : "ok") + '" data-cf="1">' +
+            esc(o.ok || "确定") + "</button>" +
+        "</div>" +
+      "</div>";
+    document.body.appendChild(wrap);
+    wrap.addEventListener("click", function (ev) {
+      var b = ev.target.closest("[data-cf]");
+      if (!b) { if (ev.target === wrap) closeConfirm(); return; }
+      var yes = b.getAttribute("data-cf") === "1";
+      closeConfirm();
+      if (yes && typeof o.onOK === "function") {
+        try { o.onOK(); } catch (e) {}
+      }
+    });
+  }
+
+  function closeConfirm() {
+    var d = document.getElementById("sz-confirm");
+    if (d && d.parentNode) d.parentNode.removeChild(d);
+  }
+
+  function confirmApp(title, body, okText, onOK, danger) {
+    askConfirm({ title: title, body: body, ok: okText || "确定", danger: !!danger, onOK: onOK });
+    return false;   // 一律先拦下，等用户点「确定」再做事
+  }
+
+  /* 换页就收掉，避免切走了弹层还盖在上面 */
+  window.addEventListener("hashchange", function () { closeConfirm(); });
+
   function deleteEntry(id) {
     var gone = db.entries.filter(function (e) { return e.id === id; })[0];
     if (!gone) return;
-    if (!confirm("删除这笔记录？")) return;
-    db.entries = db.entries.filter(function (e) { return e.id !== id; });
-    save();
-    location.hash = "#/book";
-    // 删错了能救回来：5 秒内点「撤销」原样放回
-    toast("已删除", "撤销", function () {
-      db.entries.push(gone);
-      save();
-      render();
-      toast("已恢复");
+    askConfirm({
+      title: "删除这笔记录？",
+      body: [gone.day, cash(gone.cents), gone.memo || ""].filter(Boolean).join(" · "),
+      ok: "删除", danger: true,
+      onOK: function () {
+        db.entries = db.entries.filter(function (e) { return e.id !== id; });
+        save();
+        location.hash = "#/book";
+        // 删错了能救回来：5 秒内点「撤销」原样放回
+        toast("已删除", "撤销", function () {
+          db.entries.push(gone);
+          save();
+          render();
+          toast("已恢复");
+        });
+      }
     });
   }
 
@@ -4953,16 +5029,22 @@
           (nh ? "、" + nh + " 只持仓" : "") + "\n" +
           "当前有 " + db.entries.length + " 条记录\n\n" +
           "覆盖后当前数据无法找回，继续？";
-        if (!confirm(msg)) return;
-        db = {
-          wallets: raw.wallets && raw.wallets.length ? raw.wallets : DEFAULTS.wallets.slice(),
-          tags: mergeTags(raw.tags),
-          entries: raw.entries,
-          holdings: Array.isArray(raw.holdings) ? raw.holdings : []
-        };
-        save();
-        render();
-        toast("已恢复 " + n + " 条记录");
+        askConfirm({
+          title: "用备份覆盖当前数据？",
+          body: msg,
+          ok: "覆盖", danger: true,
+          onOK: function () {
+            db = {
+              wallets: raw.wallets && raw.wallets.length ? raw.wallets : DEFAULTS.wallets.slice(),
+              tags: mergeTags(raw.tags),
+              entries: raw.entries,
+              holdings: Array.isArray(raw.holdings) ? raw.holdings : []
+            };
+            save();
+            render();
+            toast("已恢复 " + n + " 条记录");
+          }
+        });
       };
       reader.readAsText(file, "UTF-8");
     });
@@ -5314,29 +5396,34 @@
         errors.length ? ["解析失败 " + errors.length + " 行："].concat(errors.slice(0, 200)) : ["没有需要新增的记录。"]);
       return;
     }
-    if (!confirm(msg)) return;
+    askConfirm({
+      title: "导入 " + fresh.length + " 条记录？",
+      body: msg,
+      ok: "导入",
+      onOK: function () {
+        var now = Date.now();
+        fresh.forEach(function (v, i) {
+          db.entries.push({
+            id: uid("e"), flow: v.flow, cents: v.cents, tagId: v.tagId,
+            walletId: v.walletId, toWalletId: v.toWalletId,
+            day: v.day, memo: v.memo, origin: "csv", at: now + i
+          });
+        });
+        save();
+        toast("已导入 " + fresh.length + " 条");
+        render();
 
-    var now = Date.now();
-    fresh.forEach(function (v, i) {
-      db.entries.push({
-        id: uid("e"), flow: v.flow, cents: v.cents, tagId: v.tagId,
-        walletId: v.walletId, toWalletId: v.toWalletId,
-        day: v.day, memo: v.memo, origin: "csv", at: now + i
-      });
+        if (errors.length) {
+          setTimeout(function () {
+            reportSheet(
+              "有 " + errors.length + " 行没有导入",
+              "已成功写入 " + fresh.length + " 条。下面这些行没能识别，改好 CSV 可以再导一次（已经导入过的会自动跳过）。",
+              errors.slice(0, 200)
+            );
+          }, 120);
+        }
+      }
     });
-    save();
-    toast("已导入 " + fresh.length + " 条");
-    render();
-
-    if (errors.length) {
-      setTimeout(function () {
-        reportSheet(
-          "有 " + errors.length + " 行没有导入",
-          "已成功写入 " + fresh.length + " 条。下面这些行没能识别，改好 CSV 可以再导一次（已经导入过的会自动跳过）。",
-          errors.slice(0, 200)
-        );
-      }, 120);
-    }
   }
 
   /* ================= 持仓增删 ================= */
@@ -5580,25 +5667,39 @@
   function delHolding(id) {
     var h = db.holdings.filter(function (x) { return x.id === id; })[0];
     if (!h) return;
-    if (!confirm("删除持仓「" + (h.name || h.code) + "」？")) return;
-    db.holdings = db.holdings.filter(function (x) { return x.id !== id; });
-    save();
-    render();
-    toast("已删除");
+    askConfirm({
+      title: "删除持仓「" + (h.name || h.code) + "」？",
+      body: fmtShares(h.shares) + " 股 · 成本 " + fmtPrice(h.costCents) +
+        (h.feeCents ? " · 含手续费 " + money(h.feeCents) : "") +
+        "\n删掉不影响已经记过的分红流水。",
+      ok: "删除", danger: true,
+      onOK: function () {
+        db.holdings = db.holdings.filter(function (x) { return x.id !== id; });
+        save();
+        render();
+        toast("已删除");
+      }
+    });
   }
 
   function resetData() {
-    if (!confirm("清空所有记录、账户、持仓？\n\n清空前会自动留一份快照，点完 5 秒内能撤销。")) return;
-    var snapshot = JSON.stringify(db);
-    db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [], holdings: [] };
-    save();
-    toast("已清空", "撤销", function () {
-      try { db = JSON.parse(snapshot); } catch (e) { return; }
-      save();
-      render();
-      toast("已恢复");
+    askConfirm({
+      title: "清空所有记录、账户、持仓？",
+      body: "清空前会自动留一份快照，点完 5 秒内能撤销。",
+      ok: "清空", danger: true,
+      onOK: function () {
+        var snapshot = JSON.stringify(db);
+        db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: [], holdings: [] };
+        save();
+        toast("已清空", "撤销", function () {
+          try { db = JSON.parse(snapshot); } catch (e) { return; }
+          save();
+          render();
+          toast("已恢复");
+        });
+        render();
+      }
     });
-    render();
   }
 
   document.addEventListener("click", function (ev) {
@@ -5849,9 +5950,12 @@
     else if (act === "mergeOrphan") mergeOrphan();
     else if (act === "exportOrphan") exportOrphan();
     else if (act === "dropOrphan") {
-      if (confirm("丢弃暂存账本？\n\n这份数据会永久删除，建议先导出 JSON。")) {
-        dropOrphan(); render(); toast("已丢弃");
-      }
+      askConfirm({
+        title: "丢弃暂存账本？",
+        body: "这份数据会永久删除，建议先导出 JSON。",
+        ok: "丢弃", danger: true,
+        onOK: function () { dropOrphan(); render(); toast("已丢弃"); }
+      });
     }
   });
 
