@@ -2408,7 +2408,20 @@
       var out = [];
       list.forEach(function (raw) {
         if (!window.SZAuto) return;
-        var parsed = window.SZAuto.parse(raw.text, { learning: db.autoRules || {} });
+        /* 采集端上报的文本长这样：
+
+             微信支付 · 截图识别
+             付款金额 ¥0.01
+             收款方 路明非
+             支付时间 ...
+             ---
+             原始屏幕文本（可能是整页账本、聊天、随便什么）
+
+           分隔线之后是给人看的原文，不能再进解析器——
+           否则账本页那种满屏数字会被当成十几笔支出。
+           实测：一条账本页截图解析出了 11 条假记录。 */
+        var head = String(raw.text || "").split(/^---+$/m)[0];
+        var parsed = window.SZAuto.parse(head, { learning: db.autoRules || {} });
         (parsed.items || []).forEach(function (it) {
           it.rawId = raw.id;
           it.source = raw.source;
