@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold15";
+  var BUILD_ID = "20261104-hold16";
 
   var DEFAULTS = {
     wallets: [
@@ -2525,6 +2525,34 @@
     pad.addEventListener("mouseleave", function () { drag = null; });
   }
 
+  /* K 线卡片本体：跟评分/分红无关，所以评分没回来时也先把它画出来 */
+  function klCardHtml(code) {
+    var ready = KL.code === code && KL.bars && KL.bars.length;
+    return '<div class="card ov-card">' +
+      '<div class="card-title">日 K' +
+        '<span class="kl-cap">拖动平移 · 双指缩放 · 点一下看当天</span>' +
+      "</div>" +
+      '<div class="kl-host" data-code="' + esc(code) + '">' +
+        '<div class="kl-tip" hidden></div>' +
+        '<div class="kl-box"><div class="kl-gesture"></div></div>' +
+        '<div class="kl-stat">' +
+          (ready ? ""
+            : (KL.loading
+              ? "正在拉上市以来的日线（第一次会慢一点）…"
+              : esc(KL.err || "还没有这只的日线") +
+                ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' + esc(code) + '">重试</span>')) +
+        "</div>" +
+        '<div class="kl-tools">' +
+          '<span class="kl-r" data-act="klRange" data-n="20">1月</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="60">3月</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="250">1年</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="750">3年</span>' +
+          '<span class="kl-r" data-act="klRange" data-n="0">全部</span>' +
+        "</div>" +
+      "</div>" +
+    "</div>";
+  }
+
   /* 页面重绘后重新挂载：数据在就重画，没数据就拉一次 */
   function klMount() {
     var host = document.querySelector(".kl-host");
@@ -2731,7 +2759,9 @@
       return head + acts + body;
     }
     if (!d) {
-      return head + acts + '<div class="dc-skel"><i></i><i></i><i></i></div>';
+      /* 评分/分红还没回来时，先把 K 线给出来——它不依赖那些接口 */
+      return head + acts + klCardHtml(code) +
+        '<div class="dc-skel"><i></i><i></i><i></i></div>';
     }
 
     /* --- 价格 + 我的持仓 ---
@@ -2812,30 +2842,7 @@
     "</div>";
 
     /* --- 日 K（上市以来，可缩放/平移） --- */
-    var klReady = KL.code === code && KL.bars && KL.bars.length;
-    body += '<div class="card ov-card">' +
-      '<div class="card-title">日 K' +
-        '<span class="kl-cap">拖动平移 · 双指缩放 · 点一下看当天</span>' +
-      "</div>" +
-      '<div class="kl-host" data-code="' + esc(code) + '">' +
-        '<div class="kl-tip" hidden></div>' +
-        '<div class="kl-box"><div class="kl-gesture"></div></div>' +
-        '<div class="kl-stat">' +
-          (klReady ? ""
-            : (KL.loading
-              ? "正在拉上市以来的日线（第一次会慢一点）…"
-              : esc(KL.err || "还没有这只的日线") +
-                ' · <span class="kl-retry" data-act="sdKlineReload" data-code="' + esc(code) + '">重试</span>')) +
-        "</div>" +
-        '<div class="kl-tools">' +
-          '<span class="kl-r" data-act="klRange" data-n="20">1月</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="60">3月</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="250">1年</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="750">3年</span>' +
-          '<span class="kl-r" data-act="klRange" data-n="0">全部</span>' +
-        "</div>" +
-      "</div>" +
-    "</div>";
+    body += klCardHtml(code);
 
     /* --- 到手股息率：把成本扣掉再说 --- */
     var gy = Number(d.current_yield);
