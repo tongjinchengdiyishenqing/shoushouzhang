@@ -2880,11 +2880,18 @@
     /* 一次请求同时拿列表和战绩。
        隧道往返本身 500ms 以上且抖动大，两个请求并行等于等最慢的那个，
        合并之后首屏稳定快一半。翻页时不带战绩（用不着）。 */
+    /* 每次请求记一个序号。
+       切 tab（广场 / 我发的 / 我投过的）时，上一个列表的请求可能还在飞——
+       隧道一次往返一两秒，它晚回来就会把"广场"的帖子灌进"我发的"下面，
+       这就是那个"偶现广场帖子混进来"的来源。序号对不上就整包丢弃。 */
+    var mySeq = (d.seq = (d.seq || 0) + 1);
+
     var dcQuery = "/decisions?sort=" + d.sort + "&scope=" + d.scope + "&offset=" + off + "&limit=20";
     if (!append) dcQuery += "&withStats=1";
 
     apiFetch(dcQuery, {})
       .then(function (r) {
+        if (d.seq !== mySeq) return;   // 期间用户切了 tab，这次结果作废
         d.loading = false;
         if (r.status === 401) { handleAuthExpired(); return; }
         if (!r.ok) {
@@ -2902,6 +2909,7 @@
         paint();
       })
       .catch(function () {
+        if (d.seq !== mySeq) return;
         d.loading = false;
         if (!d.items.length) d.error = "网络不通，检查一下连接";
         paint();
@@ -3449,6 +3457,7 @@
     d.loaded = false;
     d.hasMore = false;
     d.error = "";
+    d.seq = (d.seq || 0) + 1;   // 让还在飞的旧请求作废
     loadDecideFeed(false);
   }
 
