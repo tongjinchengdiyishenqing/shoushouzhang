@@ -2766,6 +2766,24 @@
     syncPush().catch(function () {});
   }
 
+  /* 分类/账户改用横向胶囊，替掉原生 <select>。
+
+     原生 select 在手机上调起的是系统滚动选择器：字号、配色、圆角全是系统那套，
+     和整页设计语言完全不是一回事，看着就像"界面没做过"。
+     胶囊一屏能扫完，点一下直接切，还少一次确认。 */
+  function chipsHtml(items, current, act, idx) {
+    if (!items || !items.length) return "";
+    return '<div class="chips-scroll">' + items.map(function (t) {
+      return '<span class="chip' + (t.id === current ? " on" : "") + '" data-act="' + act +
+        '" data-id="' + idx + '" data-v="' + esc(t.id) + '">' + esc(t.name) + "</span>";
+    }).join("") + "</div>";
+  }
+
+  function tagsOf(flow) {
+    var list = (db.tags || []).filter(function (t) { return t.flow === flow; });
+    return list.length ? list : (db.tags || []);
+  }
+
   function viewAuto() {
     var a = autoState();
     var tagsOut = db.tags.filter(function (t) { return t.flow === "out"; });
