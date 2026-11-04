@@ -3360,3 +3360,10 @@ html, body { overscroll-behavior-y: contain; }
   line-height: 1.7;
   color: var(--ink-3);
 }
+
+/* 持仓行第三行小字：买入日期 + 持有天数（分红税按持有期分档，得看得见） */
+.hrow .sub2 {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
