@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold23";
+  var BUILD_ID = "20261104-hold24";
 
   var DEFAULTS = {
     wallets: [
@@ -2281,6 +2281,9 @@
     var cb = bars[KL.cross];
     var y = geo.T + (geo.hi - cb.c) / (geo.hi - geo.lo) * (geo.V0 - geo.T - 12);
     g.style.display = "";
+    g.classList.remove("kl-fade");
+    void g.getBoundingClientRect();
+    g.classList.add("kl-fade");
     g.setAttribute("transform", "translate(" + x.toFixed(1) + ",0)");
     var circle = g.querySelector("circle");
     if (circle) circle.setAttribute("cy", y.toFixed(1));
@@ -2441,6 +2444,7 @@
       var col = chg >= 0 ? "var(--pos)" : "var(--neg)";
       if (tip) {
         tip.hidden = false;
+        klShowTip(tip);
         tip.innerHTML =
           '<b class="kl-t-d">' + esc(b.d) + "</b>" +
           '<span class="kl-t-r">开 ' + b.o.toFixed(2) + " · 高 " + b.h.toFixed(2) +
@@ -2473,6 +2477,14 @@
             " · " + esc(String(KL.meta.first || "")) + " 起</span>"
           : "");
     }
+  }
+
+  /* 卡片淡出交给 CSS 动画（1.6 秒后自动消失）：
+     JS 定时器在安卓 WebView 里可能被节流，CSS 动画不会。每次显示都重启动画。 */
+  function klShowTip(el) {
+    el.classList.remove("show");
+    void el.offsetWidth;
+    el.classList.add("show");
   }
 
   function klVol(v) {
