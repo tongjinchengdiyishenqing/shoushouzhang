@@ -2752,7 +2752,7 @@
         error: "", panel: null,
         // 详情页单独拉一次完整数据（带评论区），列表缓存里没有这些
         detail: null, detailId: 0, detailLoading: false, detailError: "",
-        commentDraft: "", commentBusy: false,
+        commentDraft: "", commentBusy: false, replyTo: null,
         postBusy: false,
         form: { title: "", amount: "", reason: "", category: "", anonymous: false }
       };
@@ -3220,6 +3220,58 @@
     });
   }
 
+  /* 点赞：先本地翻状态再发请求，点完立刻有反馈；
+     失败了再翻回来并提示，别让界面和服务器长期不一致。 */
+  function decideLike(commentId) {
+    var d = decideState();
+    if (!auth || !commentId || !d.detail) return;
+    var list = d.detail.comments || [];
+    var target = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].kind === "comment" && list[i].id === "c" + commentId) { target = list[i]; break; }
+    }
+    if (!target) return;
+    var before = { liked: !!target.liked, likes: target.likes || 0 };
+    target.liked = !before.liked;
+    target.likes = Math.max(0, before.likes + (target.liked ? 1 : -1));
+    render();
+    apiFetch("/decisions/comments/" + commentId + "/like", { method: "POST" }).then(function (r) {
+      if (r.status === 401) { handleAuthExpired(); return; }
+      if (!r.ok) {
+        target.liked = before.liked;
+        target.likes = before.likes;
+        render();
+        toast(errText(r.body, "点不了赞"));
+        return;
+      }
+      target.liked = !!r.body.liked;
+      target.likes = Number(r.body.likes) || 0;
+      render();
+    }).catch(function () {
+      target.liked = before.liked;
+      target.likes = before.likes;
+      render();
+    });
+  }
+
+  /* 点「回复」：把目标记下来，输入框聚焦。
+     只做一层回复，回复的回复也挂在同一条下面——手机上多层缩进没法看。 */
+  function startReply(commentId, who) {
+    var d = decideState();
+    if (!commentId) return;
+    d.replyTo = { parentId: Number(commentId), author: who || "匿名" };
+    render();
+    setTimeout(function () {
+      var el = document.querySelector('[data-act="dcComment"]');
+      if (el) el.focus();
+    }, 30);
+  }
+
+  function cancelReply() {
+    decideState().replyTo = null;
+    render();
+  }
+
   function submitDecisionComment() {
     var d = decideState();
     var id = Number(d.detailId || 0);
@@ -3232,9 +3284,10 @@
     }
     d.commentBusy = true;
     render();
+    var parent = d.replyTo && d.replyTo.parentId ? { parentId: d.replyTo.parentId } : {};
     apiFetch("/decisions/" + id + "/comments", {
       method: "POST",
-      body: JSON.stringify({ content: text })
+      body: JSON.stringify(Object.assign({ content: text }, parent))
     }).then(function (r) {
       d.commentBusy = false;
       if (r.status === 401) { handleAuthExpired(); return; }
@@ -3244,6 +3297,7 @@
         return;
       }
       d.commentDraft = "";
+      d.replyTo = null;
       if (d.detail && d.detail.id === id) {
         d.detail.comments = [r.body].concat(d.detail.comments || []);
       }
@@ -3307,19 +3361,42 @@
           var tag = c.kind === "vote"
             ? '<span class="dc-cmt-tag ' + esc(c.choice || "") + '">' + (DC_CHOICE_TEXT[c.choice] || "投票") + "</span>"
             : '<span class="dc-cmt-tag talk">点评</span>';
-          return '<div class="dc-cmt' + (c.mine ? " mine" : "") + '">' +
+          var isReply = !!c.parentId;
+          /* 只有「点评」能点赞——投票理由那条的 id 是 v<N>，不是真评论，
+             给它点个赞没地方存，干脆不显示，别做假的按钮。 */
+          var canLike = c.kind === "comment" && c.id && c.id.charAt(0) === "c";
+          var cid = canLike ? c.id.slice(1) : "";
+          var likeBtn = canLike
+            ? '<button class="dc-like' + (c.liked ? " on" : "") + '" data-act="dcLike" data-id="' + cid + '">' +
+                '<span class="thumb">' + (c.liked ? "👍" : "👍") + "</span>" +
+                '<span class="n">' + (c.likes || "") + "</span></button>"
+            : "";
+          var replyBtn = c.kind === "comment"
+            ? '<button class="dc-reply" data-act="dcReply" data-id="' + cid + '" data-who="' +
+                esc(c.author || "匿名") + '">回复</button>'
+            : "";
+          return '<div class="dc-cmt' + (c.mine ? " mine" : "") + (isReply ? " is-reply" : "") + '">' +
             '<div class="dc-cmt-h">' + esc(c.author || "匿名") + tag +
+              (isReply && c.replyTo ? '<span class="dc-cmt-to">回复 ' + esc(c.replyTo) + "</span>" : "") +
               "<em>" + agoText(c.createdAt) + "</em></div>" +
             '<div class="dc-cmt-b">' + esc(c.content) + "</div>" +
+            '<div class="dc-cmt-f">' + likeBtn + replyBtn + "</div>" +
           "</div>";
         }).join("")
       : '<div class="dc-cmt-empty">还没有人留话</div>';
 
-    var composer = '<div class="dc-cmt-form">' +
-      '<input data-act="dcComment" maxlength="300" placeholder="说一句，给个理由" value="' + esc(d.commentDraft) + '">' +
+    var replyHint = d.replyTo
+      ? '<div class="dc-reply-hint">回复 <b>' + esc(d.replyTo.author) + "</b>" +
+        '<span data-act="dcReplyCancel">取消</span></div>'
+      : "";
+    var composer = '<div class="dc-cmt-form">' + replyHint +
+      '<div class="dc-cmt-row">' +
+      '<input data-act="dcComment" maxlength="300" placeholder="' +
+        (d.replyTo ? "回复 " + esc(d.replyTo.author) + "…" : "说一句，给个理由") +
+        '" value="' + esc(d.commentDraft) + '">' +
       '<button data-act="dcSendComment"' + (d.commentBusy ? " disabled" : "") + ">" +
         (d.commentBusy ? "发送中" : "发送") + "</button>" +
-    "</div>";
+      "</div></div>";
 
     return head + post +
       '<div class="dc-cmt-wrap">' +
@@ -5043,6 +5120,9 @@
     else if (act === "dcBackList") { decideState().detailId = 0; location.hash = "#/decide"; }
     else if (act === "dcDetailReload") { var d6 = decideState(); d6.detail = null; d6.detailError = ""; render(); }
     else if (act === "dcSendComment") submitDecisionComment();
+    else if (act === "dcLike") decideLike(Number(id));
+    else if (act === "dcReply") { startReply(id, el.getAttribute("data-who")); }
+    else if (act === "dcReplyCancel") cancelReply();
     else if (act === "goAssets") { location.hash = "#/assets"; }
     else if (act === "goStats") { location.hash = "#/stats"; }
     else if (act === "goHoldings") { location.hash = "#/holdings"; }
