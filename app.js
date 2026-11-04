@@ -1941,6 +1941,58 @@
       '<b>' + n.toFixed(0) + "</b></div>";
   }
 
+  /* ================= 到手股息率 =================
+     页面上的「当前股息率」是毛数：每股分红 ÷ 股价，一分成本没扣。
+     实际到手差三样东西：
+
+     ① 券商佣金：万 2.5 起，但很多券商有「最低 5 元」——
+        买 1 万块也是 5 元，等于 0.05%，小资金被这条吃掉得更多
+     ② 过户费：成交额 0.001%（沪深都收，金额很小）
+     ③ 红利税：按持股期限差别化征收，这是大头
+        持股 ≤1 个月 20%、1 个月–1 年 10%、超过 1 年 0%
+
+     第 ③ 条对「长期拿着吃股息」这件事是决定性的：
+     同一只票，短线进出和拿满一年，到手的股息率能差两成。
+     所以不能只给一个毛数字。 */
+
+  var COST = {
+    commissionRate: 0.00025,   // 佣金万 2.5
+    commissionMin: 5,          // 单笔最低 5 元
+    transferRate: 0.00001,     // 过户费 0.001%
+    stampRate: 0.0005,         // 印花税 0.05%（仅卖出）
+    sampleAmount: 10000        // 示例买入金额（元）
+  };
+
+  /* 买入一趟的成本率（佣金按最低 5 元兜底，小资金更接近真实） */
+  function buyCostRate(amount) {
+    var amt = Number(amount) || COST.sampleAmount;
+    var fee = Math.max(amt * COST.commissionRate, COST.commissionMin) + amt * COST.transferRate;
+    return fee / amt;
+  }
+
+  /* 卖出成本率：佣金 + 过户费 + 印花税（印花税只有卖出收） */
+  function sellCostRate(amount) {
+    var amt = Number(amount) || COST.sampleAmount;
+    var fee = Math.max(amt * COST.commissionRate, COST.commissionMin) +
+      amt * COST.transferRate + amt * COST.stampRate;
+    return fee / amt;
+  }
+
+  /* 到手股息率。
+     gross 是小数（0.0375 表示 3.75%）。
+     roundTrip=true 表示把卖出那趟也算进去（短线场景才该算）。 */
+  function netYield(gross, holdMonths, roundTrip) {
+    var g = Number(gross);
+    if (!isFinite(g) || g <= 0) return null;
+    var cost = buyCostRate(COST.sampleAmount);
+    if (roundTrip) cost += sellCostRate(COST.sampleAmount);
+    // 分红除权后到手金额先被佣金摊薄，再按持股期限扣红利税
+    var afterCost = g - cost;
+    if (afterCost < 0) afterCost = 0;
+    var taxRate = holdMonths > 12 ? 0 : (holdMonths > 1 ? 0.10 : 0.20);
+    return afterCost * (1 - taxRate);
+  }
+
   function viewStock(code) {
     var st = stockState();
     var d = st.data && st.data.ts_code === code ? st.data : null;
@@ -2016,7 +2068,7 @@
         '<div class="sd-big">' + (scoreOk ? score.toFixed(0) : "—") + "</div>" +
         '<div class="sd-top-r">' +
           "<b>" + grade + "</b>" +
-          "<span>当前股息率 " + (d.current_yield != null ? (d.current_yield * 100).toFixed(2) + "%" : "—") + "</span>" +
+          "<span>当前股息率（毛） " + (d.current_yield != null ? (d.current_yield * 100).toFixed(2) + "%" : "—") + "</span>" +
           "<span>连续分红 " + (d.consecutive_years != null ? d.consecutive_years + " 年" : "—") +
             " · 累计 " + (d.total_dividend_count != null ? d.total_dividend_count + " 次" : "—") + "</span>" +
         "</div>" +
@@ -2037,6 +2089,30 @@
           "（" + esc(d.forecast_source) + (d.forecast_year ? " · " + d.forecast_year : "") + "）</div>"
         : "") +
     "</div>";
+
+    /* --- 到手股息率：把成本扣掉再说 --- */
+    var gy = Number(d.current_yield);
+    if (isFinite(gy) && gy > 0) {
+      var yLong = netYield(gy, 24, false);      // 拿满一年，免红利税，也不卖
+      var yMid = netYield(gy, 6, false);        // 1 个月到 1 年，扣 10%
+      var yShort = netYield(gy, 0.5, true);     // 1 个月内卖掉，扣 20% + 一买一卖成本
+      function pct(v) { return v == null ? "—" : (v * 100).toFixed(2) + "%"; }
+      function diff(v) {
+        if (v == null) return "";
+        var dd = (v - gy) * 100;
+        return '<em class="sd-diff">' + (dd >= 0 ? "+" : "") + dd.toFixed(2) + "pt</em>";
+      }
+      body += '<div class="card ov-card">' +
+        '<div class="card-title">到手股息率</div>' +
+        '<div class="sd-yield">' +
+          '<div class="sd-y-row"><span>持有满 1 年（免税）</span><b>' + pct(yLong) + "</b>" + diff(yLong) + "</div>" +
+          '<div class="sd-y-row"><span>持 1 个月–1 年（税 10%）</span><b>' + pct(yMid) + "</b>" + diff(yMid) + "</div>" +
+          '<div class="sd-y-row"><span>1 个月内卖掉（税 20%）</span><b>' + pct(yShort) + "</b>" + diff(yShort) + "</div>" +
+        "</div>" +
+        '<div class="sd-note">按买入 ' + COST.sampleAmount + " 元估算：佣金万 2.5（最低 5 元）+ 过户费 0.001%" +
+          "，卖出另收印花税 0.05%。红利税按持股期限：满 1 年免税、1 个月至 1 年 10%、1 个月内 20%。</div>" +
+      "</div>";
+    }
 
     /* --- 估值：PE / PB / ROE / 市赚率 --- */
     var pe = Number(d.pe), pb = Number(d.pb);
