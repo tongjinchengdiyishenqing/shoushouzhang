@@ -2920,3 +2920,40 @@ a.list-row:last-child { border-bottom: 0; }
   align-items: center;
   gap: 6px;
 }
+
+/* ============================================================
+   个股页：实时价 / 收盘价 的区分
+   实时用绿点+涨跌色，收盘价用灰色说明，不给用户"这是现价"的错觉
+   ============================================================ */
+.sd-pxline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.sd-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--pos);
+  font-weight: 700;
+}
+.sd-live i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pos);
+  display: inline-block;
+  animation: sdPulse 1.8s ease-in-out infinite;
+}
+@keyframes sdPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+.sd-chg { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sd-chg.up { color: var(--pos); }
+.sd-chg.down { color: var(--neg); }
+.sd-close { color: var(--ink-3); font-weight: 600; }
