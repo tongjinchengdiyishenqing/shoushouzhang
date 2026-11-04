@@ -5348,6 +5348,12 @@
   }
 
   document.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-act]");
+    if (!el) return;
+    var act = el.getAttribute("data-act");
+    var v = el.getAttribute("data-v");
+    var id = el.getAttribute("data-id");
+
     /* ---- 胶囊（替掉了原生 select，点 span 只触发 click，不触发 change） ---- */
     /* ---- 流水类型：支出 / 收入 / 转账 ---- */
     if (act === "autoFlow" || act === "autoFlowLocal") {
@@ -5401,20 +5407,6 @@
       render();
       return;
     }
-    if (act === "autoTag") {
-      var a = autoState();
-      var i = Number(el.getAttribute("data-id"));
-      if (a.items[i]) a.items[i].tagId = el.value;
-    } else if (act === "autoRemoteTag") {
-      var a2 = autoState();
-      var j = Number(el.getAttribute("data-id"));
-      if (a2.remote && a2.remote[j]) a2.remote[j].tagId = el.value;
-    }
-    var el = ev.target.closest("[data-act]");
-    if (!el) return;
-    var act = el.getAttribute("data-act");
-    var v = el.getAttribute("data-v");
-    var id = el.getAttribute("data-id");
 
     if (act === "consentAgree") {
       try { localStorage.setItem(CONSENT_KEY, "1"); } catch (e) {}
