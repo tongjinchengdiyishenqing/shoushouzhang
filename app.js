@@ -2914,6 +2914,41 @@
     }).catch(function () { toast("网络不通"); });
   }
 
+  /* 删自己发的帖子。
+     删掉会连带票和评论一起没，所以要走一次确认——
+     用 toast 上的「确认删除」，而不是一按就没了。
+     后端是 DELETE /decisions/{id}，会连票和评论一起清。 */
+  function decideDelete(id) {
+    if (!auth || !id) return;
+    var d = decideState();
+    var target = null;
+    for (var i = 0; i < d.items.length; i++) if (d.items[i].id === id) target = d.items[i];
+    if (!target && d.detail && d.detail.id === id) target = d.detail;
+    var title = (target && target.title) || "这条";
+    var votes = target && target.votes ? (target.votes.total || 0) : 0;
+
+    toast('删掉「' + title.slice(0, 12) + (title.length > 12 ? "…" : "") + "」？" +
+      (votes ? votes + " 张票和评论会一起没" : "评论会一起没"),
+      "确认删除", function () {
+        apiFetch("/decisions/" + id, { method: "DELETE" }).then(function (r) {
+          if (r.status === 401) { handleAuthExpired(); return; }
+          if (!r.ok) { toast(errText(r.body, "删不掉")); return; }
+          var dd = decideState();
+          dd.items = (dd.items || []).filter(function (x) { return x.id !== id; });
+          dd.hasMore = false;
+          if (dd.detail && dd.detail.id === id) {
+            dd.detail = null;
+            dd.detailId = 0;
+            location.hash = "#/decide";
+            render();
+          } else {
+            render();
+          }
+          toast("删掉了");
+        }).catch(function () { toast("网络不通"); });
+      }, 4200);
+  }
+
   function submitDecision() {
     var d = decideState();
     var f = d.form;
@@ -3020,7 +3055,11 @@
       (p.reason ? '<div class="dc-reason">' + esc(p.reason) + "</div>" : "") +
       verdict + bar + actions +
       '<div class="dc-meta">' + avatarHTML(p.author, toneOf(p.author), "sm") +
-        "<span>" + esc(p.author) + " · " + agoText(p.createdAt) + "</span></div>" +
+        "<span>" + esc(p.author) + " · " + agoText(p.createdAt) + "</span>" +
+        (p.isMine
+          ? '<span class="dc-del" data-act="dcDelete" data-id="' + p.id + '">删除</span>'
+          : "") +
+      "</div>" +
     "</div>";
   }
 
@@ -3255,7 +3294,11 @@
       verdict + dcVoteBar(p) + dcActionsFor(p) +
       '<div class="dc-meta">' + avatarHTML(p.author, toneOf(p.author), "sm") +
         "<span>" + esc(p.author) + " · " + agoText(p.createdAt) +
-        (p.category ? " · " + esc(p.category) : "") + "</span></div>" +
+        (p.category ? " · " + esc(p.category) : "") + "</span>" +
+        (p.isMine
+          ? '<span class="dc-del" data-act="dcDelete" data-id="' + p.id + '">删除这条</span>'
+          : "") +
+      "</div>" +
     "</div>";
 
     var cms = p.comments || [];
@@ -4996,6 +5039,7 @@
     else if (act === "dcFormAnon") { var d5 = decideState().form; d5.anonymous = !d5.anonymous; render(); }
     else if (act === "dcGoLogin") { ui.authPanel = "login"; location.hash = "#/config"; }
     else if (act === "dcOpenDetail") { location.hash = "#/decide?id=" + encodeURIComponent(id); }
+    else if (act === "dcDelete") { decideDelete(Number(id)); }
     else if (act === "dcBackList") { decideState().detailId = 0; location.hash = "#/decide"; }
     else if (act === "dcDetailReload") { var d6 = decideState(); d6.detail = null; d6.detailError = ""; render(); }
     else if (act === "dcSendComment") submitDecisionComment();
