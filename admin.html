@@ -122,7 +122,7 @@
   .tbl tr:last-child td{border-bottom:0}
   .tbl tbody tr:hover td{background:#FAFCFE}
   .tbl .id{color:var(--dim-2);font-variant-numeric:tabular-nums}
-  .tbl .who{font-weight:650;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tbl .who{font-weight:650;max-width:124px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tbl .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--dim)}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;
     background:#D1FAE5;color:#047857}
@@ -168,10 +168,11 @@
   }
   @media (max-width:520px){
     .wrap{padding:12px 12px 0}
+    .tbl .who{max-width:104px}
     .kpi .v{font-size:25px}
     .big{font-size:22px}
     .card{padding:12px 13px 10px}
-    .tbl .opt{display:none}
+    .tbl .opt,.tbl .dev{display:none}
     .bt{font-size:14px}
   }
 </style>
@@ -289,7 +290,7 @@
       <div class="card">
         <div class="card-h"><div class="card-t">最近注册</div><div class="sub" style="margin:0" id="u_note">—</div></div>
         <table class="tbl">
-          <thead><tr><th style="width:42px">#</th><th>用户</th><th class="opt">设备</th><th class="r">注册</th><th class="r opt">最后活跃</th></tr></thead>
+          <thead><tr><th style="width:42px">#</th><th>用户</th><th class="dev">设备</th><th class="r">注册</th><th class="r opt">最后活跃</th></tr></thead>
           <tbody id="u_body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
         </table>
       </div>
@@ -321,7 +322,7 @@
      这些值只在 SVG 里用，改主题时连 CSS 变量一起改。 */
   var THEME = {
     grid: "#EEF2F7",
-    axis: "#94A3B8",
+    axis: "#7C8B9A",
     pointBg: "#FFFFFF",
     spark: "#0284C7",
     sparkDev: "#0891B2"
@@ -557,7 +558,7 @@
       return "<tr>" +
         '<td class="id">' + u.id + "</td>" +
         '<td class="who">' + esc(u.username) + "</td>" +
-        '<td class="opt"><span class="pill' + (isNew ? "" : " grey") + '">' + (u.devices || 0) + " 台</span></td>" +
+        '<td class="dev"><span class="pill' + (isNew ? "" : " grey") + '">' + (u.devices || 0) + " 台</span></td>" +
         '<td class="r">' + ago(u.createdAt) + "</td>" +
         '<td class="r opt">' + (u.lastSeenAt ? ago(u.lastSeenAt) : "—") + "</td>" +
         "</tr>";
@@ -611,7 +612,7 @@
       var yest = tr[tr.length - 2] || {};
 
       $("dot").className = "dot";
-      $("stamp").textContent = "更新 " + bj(s.at) + " 北京时间";
+      $("stamp").textContent = bj(s.at) + " 更新（北京）";
 
       $("k_users").textContent = s.users.total;
       $("k_users_d").innerHTML = "今日 <b>" + s.users.today + "</b> ・ 7日 <b>" + s.users.week + "</b>";
