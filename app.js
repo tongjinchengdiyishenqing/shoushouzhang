@@ -2384,6 +2384,28 @@
 
   /* 停在自动识别页时定期拉一次。采集端是"从后面推过来"的，
      页面不会自己重绘，不轮询的话用户会以为没采到。 */
+  /* 决策广场也自动刷。
+
+     原来广场只有"进入时拉一次"，别人新发的帖、新投的票，你不手动下拉就永远看不到。
+     20 秒一次：隧道一次往返几百毫秒，这个频率成本可忽略，又不至于太吵。
+     silent=true 时只有停在这一页才重绘，不会打断正在看详情的用户。 */
+  var _dcTimer = null;
+
+  function startDecidePoll() {
+    if (_dcTimer) return;
+    _dcTimer = setInterval(function () {
+      var h = parseHash();
+      if (h.view !== "decide") { stopDecidePoll(); return; }
+      if (Number(h.params.id || 0)) return;   // 详情页有自己的加载，不刷列表
+      if (document.hidden) return;
+      loadDecideFeed(false, true);
+    }, 20000);
+  }
+
+  function stopDecidePoll() {
+    if (_dcTimer) { clearInterval(_dcTimer); _dcTimer = null; }
+  }
+
   function startPendingPoll() {
     if (_rawTimer) return;
     _rawTimer = setInterval(function () {
@@ -2408,6 +2430,7 @@
       var out = [];
       list.forEach(function (raw) {
         if (!window.SZAuto) return;
+        if (_droppedRaw[raw.id]) return;   // 本机刚处理过，别让它回来
         /* 采集端上报的文本长这样：
 
              微信支付 · 截图识别
@@ -2466,6 +2489,24 @@
   /* 待确认被处理掉一条就减一，不用等下一次轮询 */
   function bumpPending(delta) {
     _pendingN = Math.max(0, _pendingN + delta);
+  }
+
+  /* 本机刚删掉/刚确认的 rawId。
+
+     后端标记是异步的，而待确认页每 8 秒轮询一次——轮询常常先到，
+     后端那条还是 pending，于是刚点掉的那笔又冒出来。
+     用户看到的就是"点叉叉删不掉，再点一次才没了"。
+     本地先记下来，轮询结果里过滤掉，等后端标记生效再说。 */
+  var _droppedRaw = {};
+
+  function rememberDropped(rawId) {
+    if (!rawId) return;
+    _droppedRaw[rawId] = Date.now();
+    // 顺手清掉 5 分钟前的，别让这个表无限长
+    var now = Date.now();
+    Object.keys(_droppedRaw).forEach(function (k) {
+      if (now - _droppedRaw[k] > 5 * 60 * 1000) delete _droppedRaw[k];
+    });
   }
 
   function markRawDone(id, status) {
@@ -2635,7 +2676,11 @@
         db.autoRules = db.autoRules || {};
         db.autoRules[it.merchant] = it.tagId;
       }
-      if (it.rawId) markRawDone(it.rawId, "confirmed");
+      if (it.rawId) {
+        // 入账后同样要挡住轮询：后端标记是异步的，不挡就会又被拉回待确认
+        rememberDropped(it.rawId);
+        markRawDone(it.rawId, "confirmed");
+      }
       n++;
     });
     save();
@@ -4237,6 +4282,7 @@
     } else {
       stopPendingPoll();
     }
+    if (r.view === "decide") startDecidePoll(); else stopDecidePoll();
 
     var isEntry = r.view === "entry";
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
@@ -5291,7 +5337,10 @@
       var ar = autoState();
       var idx = Number(id);
       var target = (ar.remote || [])[idx];
-      if (target && target.rawId) markRawDone(target.rawId, "ignored");
+      if (target && target.rawId) {
+        rememberDropped(target.rawId);
+        markRawDone(target.rawId, "ignored");
+      }
       (ar.remote || []).splice(idx, 1);
       ar._rawSig = (ar.remote || []).map(function (x) { return x.rawId; }).join(",");
       render();
