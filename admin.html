@@ -67,7 +67,7 @@
   .kpi .k{font-size:12px;color:var(--dim);font-weight:600}
   .kpi .v{font-size:30px;font-weight:750;line-height:1.1;margin-top:6px;letter-spacing:-.03em}
   .kpi .v small{font-size:13px;font-weight:600;color:var(--dim);margin-left:4px;letter-spacing:0}
-  .kpi .d{font-size:11.5px;color:var(--dim-2);margin-top:5px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .kpi .d{font-size:11px;color:var(--dim-2);margin-top:5px;line-height:1.5}
   .kpi .d b{font-weight:700;color:var(--txt)}
   .up{color:var(--accent-2)}.down{color:var(--bad)}.flat{color:var(--dim-2)}
   .spark{height:26px;margin-top:8px;margin-left:-2px;margin-right:-2px}
@@ -113,8 +113,8 @@
   .tbl td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.045);color:var(--txt)}
   .tbl tr:last-child td{border-bottom:0}
   .tbl .id{color:var(--dim-2);font-variant-numeric:tabular-nums}
-  .tbl .who{font-weight:650}
-  .tbl .r{text-align:right;font-variant-numeric:tabular-nums}
+  .tbl .who{font-weight:650;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tbl .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;
     background:rgba(52,211,153,.14);color:var(--accent-2)}
   .pill.grey{background:rgba(255,255,255,.07);color:var(--dim)}
@@ -450,6 +450,7 @@
     // 横轴日期（隔一个显示一个，窄屏更少）
     var skip = w < 420 ? 3 : 2;
     for (var m = 0; m < trend.length; m++) {
+      if (m === 0) continue;   // 第一个和 y 轴的 0 会叠在一起
       if (m % skip !== 0 && m !== trend.length - 1) continue;
       svg.push('<text x="' + x(m).toFixed(1) + '" y="' + (h - 6) +
         '" fill="#5A7183" font-size="9.5" text-anchor="middle">' + esc(trend[m].day) + "</text>");
@@ -594,19 +595,19 @@
 
       // KPI
       $("k_users").textContent = s.users.total;
-      $("k_users_d").innerHTML = "今天 <b>" + s.users.today + "</b> · 7 天 <b>" + s.users.week + "</b>";
+      $("k_users_d").innerHTML = "今日 <b>" + s.users.today + "</b> ・ 7日 <b>" + s.users.week + "</b>";
       $("k_users_dod").innerHTML = dod(today.users, yest.users);
 
       $("k_dev").textContent = s.devices.activeToday;
-      $("k_dev_d").innerHTML = "总设备 <b>" + s.devices.total + "</b> · 7 天活跃 <b>" + s.devices.activeWeek + "</b>";
+      $("k_dev_d").innerHTML = "共 <b>" + s.devices.total + "</b> 台 ・ 7日 <b>" + s.devices.activeWeek + "</b>";
       $("k_dev_dod").innerHTML = '<span class="flat">按天见访问</span>';
 
       $("k_uv").textContent = s.pageview.uvToday;
-      $("k_uv_d").innerHTML = "累计打开 <b>" + s.pageview.pvTotal + "</b> 次";
+      $("k_uv_d").innerHTML = "累计 <b>" + s.pageview.pvTotal + "</b> 次";
       $("k_uv_dod").innerHTML = dod(s.pageview.pvToday, yest.pv);
 
       $("k_auto").textContent = s.auto.total;
-      $("k_auto_d").innerHTML = "今天 <b>" + s.auto.today + "</b> · 待确认 <b>" + s.auto.pending + "</b>";
+      $("k_auto_d").innerHTML = "今日 <b>" + s.auto.today + "</b> ・ 待确认 <b>" + s.auto.pending + "</b>";
       $("k_auto_dod").innerHTML = dod(today.auto, yest.auto);
 
       // sparkline：用趋势序列（最后一列是今天）
