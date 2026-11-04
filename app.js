@@ -2679,18 +2679,25 @@
     var fallbackWallet = db.wallets[0] ? db.wallets[0].id : "w_cash";
     var n = 0;
     list.forEach(function (it) {
-      db.entries.unshift({
+      var e = {
         id: uid("e"),
         day: it.day,
-        flow: it.flow,
+        flow: it.flow === "move" ? "move" : it.flow,
         cents: it.cents,
-        tagId: it.tagId,
+        tagId: it.flow === "move" ? "" : it.tagId,
         walletId: it.walletId || fallbackWallet,
         memo: (it.memo || it.merchant || "自动记账").trim(),
         origin: "auto",
         at: Date.now()
-      });
-      if (it.merchant) {
+      };
+      if (e.flow === "move") {
+        // 转账必须有转入账户，且不能和转出同一个
+        var toW = it.toWalletId || pickWallet(1);
+        if (!toW || toW === e.walletId) toW = pickWallet(1) === e.walletId ? pickWallet(2) : pickWallet(1);
+        e.toWalletId = toW || e.walletId;
+      }
+      db.entries.unshift(e);
+      if (it.merchant && it.flow !== "move") {
         db.autoRules = db.autoRules || {};
         db.autoRules[it.merchant] = it.tagId;
       }
@@ -2738,19 +2745,26 @@
       var k = autoDupKey(it);
       if (seen[k]) { dup++; return; }
       seen[k] = true;
-      db.entries.unshift({
+      var e = {
         id: uid("e"),
         day: it.day,
-        flow: it.flow,
+        flow: it.flow === "move" ? "move" : it.flow,
         cents: it.cents,
-        tagId: it.tagId,
+        tagId: it.flow === "move" ? "" : it.tagId,
         walletId: it.walletId || fallbackWallet,
         memo: (it.memo || it.merchant || "自动记账").trim(),
         origin: "auto",
         at: Date.now()
-      });
+      };
+      if (e.flow === "move") {
+        // 转账必须有转入账户，且不能和转出同一个
+        var toW = it.toWalletId || pickWallet(1);
+        if (!toW || toW === e.walletId) toW = pickWallet(1) === e.walletId ? pickWallet(2) : pickWallet(1);
+        e.toWalletId = toW || e.walletId;
+      }
+      db.entries.unshift(e);
       // 学习：这个商户用了这个分类，下次直接照抄
-      if (it.merchant) {
+      if (it.merchant && it.flow !== "move") {
         db.autoRules = db.autoRules || {};
         db.autoRules[it.merchant] = it.tagId;
       }
@@ -2773,12 +2787,26 @@
      原生 select 在手机上调起的是系统滚动选择器：字号、配色、圆角全是系统那套，
      和整页设计语言完全不是一回事，看着就像"界面没做过"。
      胶囊一屏能扫完，点一下直接切，还少一次确认。 */
+  /* 流水类型。转账既不是支出也不是收入——它只是钱从自己一个口袋挪到另一个口袋，
+     混进支出里会让当月支出虚高，混进收入里更离谱。 */
+  var FLOW_CHIPS = [
+    { id: "out", name: "支出" },
+    { id: "in", name: "收入" },
+    { id: "move", name: "转账" }
+  ];
+
   function chipsHtml(items, current, act, idx) {
     if (!items || !items.length) return "";
     return '<div class="chips-scroll">' + items.map(function (t) {
       return '<span class="chip' + (t.id === current ? " on" : "") + '" data-act="' + act +
         '" data-id="' + idx + '" data-v="' + esc(t.id) + '">' + esc(t.name) + "</span>";
     }).join("") + "</div>";
+  }
+
+  function pickWallet(rank) {
+    var list = db.wallets || [];
+    if (!list.length) return "";
+    return (list[rank] || list[0]).id;
   }
 
   function tagsOf(flow) {
@@ -2812,7 +2840,17 @@
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
         "</div>" +
         '<span class="au-del" data-act="autoRemoteDrop" data-id="' + i + '">✕</span>' +
-        '<div class="au-chips">' + chipsHtml(tagsOf(it.flow), it.tagId, "autoRemoteTag", i) + "</div>" +
+        '<div class="au-chips"><span class="chips-label">类型</span>' +
+          chipsHtml(FLOW_CHIPS, it.flow, "autoFlow", i) + "</div>" +
+        (it.flow === "move"
+          ? '<div class="au-chips"><span class="chips-label">从</span>' +
+              chipsHtml(db.wallets || [], it.walletId || pickWallet(0), "autoFrom", i) +
+            "</div>" +
+            '<div class="au-chips"><span class="chips-label">到</span>' +
+              chipsHtml(db.wallets || [], it.toWalletId || pickWallet(1), "autoTo", i) +
+            "</div>"
+          : '<div class="au-chips"><span class="chips-label">分类</span>' +
+              chipsHtml(tagsOf(it.flow), it.tagId, "autoRemoteTag", i) + "</div>") +
       "</div>";
     }).join("");
 
@@ -2835,7 +2873,17 @@
             (it.flow === "in" ? "+" : "−") + "¥" + money(it.cents) + "</div>" +
         "</div>" +
         '<span class="au-del" data-act="autoDrop" data-id="' + i + '">✕</span>' +
-        '<div class="au-chips">' + chipsHtml(tagsOf(it.flow), it.tagId, "autoTag", i) + "</div>" +
+        '<div class="au-chips"><span class="chips-label">类型</span>' +
+          chipsHtml(FLOW_CHIPS, it.flow, "autoFlowLocal", i) + "</div>" +
+        (it.flow === "move"
+          ? '<div class="au-chips"><span class="chips-label">从</span>' +
+              chipsHtml(db.wallets || [], it.walletId || pickWallet(0), "autoFromLocal", i) +
+            "</div>" +
+            '<div class="au-chips"><span class="chips-label">到</span>' +
+              chipsHtml(db.wallets || [], it.toWalletId || pickWallet(1), "autoToLocal", i) +
+            "</div>"
+          : '<div class="au-chips"><span class="chips-label">分类</span>' +
+              chipsHtml(tagsOf(it.flow), it.tagId, "autoTag", i) + "</div>") +
       "</div>";
     }).join("");
 
@@ -5631,6 +5679,47 @@
     var el = ev.target;
     var act = el.getAttribute && el.getAttribute("data-act");
     if (act === "sdWallet") { stockState().walletId = el.value; return; }
+    /* ---- 流水类型：支出 / 收入 / 转账 ---- */
+    if (act === "autoFlow" || act === "autoFlowLocal") {
+      var aF = autoState();
+      var iF = Number(el.getAttribute("data-id"));
+      var vF = el.getAttribute("data-v") || "out";
+      var bucketF = act === "autoFlow" ? aF.remote : aF.items;
+      var targetF = bucketF && bucketF[iF];
+      if (targetF) {
+        targetF.flow = vF;
+        if (vF === "move") {
+          /* 转账：没有分类，改成"从哪个账户到哪个账户" */
+          targetF.tagId = "";
+          targetF.walletId = targetF.walletId || pickWallet(0);
+          targetF.toWalletId = targetF.toWalletId || pickWallet(1);
+        } else {
+          delete targetF.toWalletId;
+          // 换了方向，原来的分类可能不属于这个方向，重挑一个
+          var t0 = tagsOf(vF)[0];
+          targetF.tagId = t0 ? t0.id : "";
+        }
+      }
+      render();
+      return;
+    }
+
+    /* ---- 转账的转出 / 转入账户 ---- */
+    if (act === "autoFrom" || act === "autoTo" || act === "autoFromLocal" || act === "autoToLocal") {
+      var aW = autoState();
+      var iW = Number(el.getAttribute("data-id"));
+      var vW = el.getAttribute("data-v") || "";
+      var isLocal = act.indexOf("Local") > 0;
+      var bucketW = isLocal ? aW.items : aW.remote;
+      var targetW = bucketW && bucketW[iW];
+      if (targetW && vW) {
+        if (act.indexOf("From") === 0 || act === "autoFromLocal") targetW.walletId = vW;
+        else targetW.toWalletId = vW;
+      }
+      render();
+      return;
+    }
+
     /* 胶囊点击（原生 select 的 change 事件已不再触发） */
     if (act === "sdWalletPick") { stockState().walletId = el.getAttribute("data-v") || ""; render(); return; }
     if (act === "autoTag" || act === "autoRemoteTag") {
