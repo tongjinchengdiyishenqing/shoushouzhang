@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold10";
+  var BUILD_ID = "20261104-hold11";
 
   var DEFAULTS = {
     wallets: [
@@ -2078,7 +2078,7 @@
       var y = Y(v).toFixed(1);
       out.push('<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y +
         '" stroke="#E4EFF5" stroke-width="1"' + (k === 1 ? ' stroke-dasharray="3 3"' : "") + "/>");
-      out.push('<text x="' + (W - R) + '" y="' + (Number(y) - 2).toFixed(1) +
+      out.push('<text x="' + (W - 2) + '" y="' + (Number(y) - 2).toFixed(1) +
         '" text-anchor="end" font-size="8.5" fill="#767680">' + v.toFixed(2) + "</text>");
     });
 
