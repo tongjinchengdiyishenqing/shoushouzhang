@@ -5271,6 +5271,132 @@
     }
   });
 
+  /* ================= 下拉刷新 =================
+     只在"这一页真的要联网"时才响应用户的下拉——
+     记账页、设置页这类纯本地页面下拉没有任何意义，硬加反而让人以为在刷新什么。
+
+     手势：从顶部下拉超过 64px 松手触发；跟随手指但带 0.55 阻尼（拉不动才自然）。
+     刷新做完后指示器收起，不等真实 Promise——各页面的刷新函数返回的不是统一 Promise，
+     硬等会导致不同页面反馈时间差很多，反而不如给一个稳定的 800ms 反馈。 */
+
+  var PULL_MAX = 96;
+  var PULL_TRIGGER = 64;
+  var _pull = { active: false, startY: 0, dist: 0, busy: false };
+
+  function pullTipEl() {
+    var el = document.getElementById("pullTip");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "pullTip";
+      el.className = "pull-tip";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  /* 这一页下拉该刷新什么。返回 null 表示这页不联网、不响应下拉。 */
+  function pullAction() {
+    var h = parseHash();
+    var v = h.view;
+    if (v === "decide") {
+      var pid = Number(h.params.id || 0);
+      if (pid) return function () { loadDecisionDetail(pid); };
+      return function () { dcResetFeed(); };
+    }
+    if (v === "stock") {
+      var code = normCode(h.params.code || "");
+      if (!code) return null;
+      return function () {
+        loadStockDetail(code, true);
+        loadStockQuote(code, true);
+      };
+    }
+    if (v === "holdings") return function () { refreshQuotes(true); };
+    if (v === "auto") return function () { loadPendingRaw(); };
+    if (v === "book") {
+      return function () {
+        refreshPendingCount(true);
+        if (auth && auth.token) syncPull().then(function () { render(); }).catch(function () {});
+      };
+    }
+    if (v === "assets" || v === "overview" || v === "stats") {
+      return function () { holdingStats(); refreshQuotes(true); render(); };
+    }
+    if (v === "config" || v === "wallets" || v === "tags") {
+      return function () { render(); };
+    }
+    return null;
+  }
+
+  function paintPull(d) {
+    var el = pullTipEl();
+    if (d <= 0) {
+      el.className = "pull-tip";
+      el.style.transform = "translate(-50%, -100%)";
+      el.textContent = "";
+      return;
+    }
+    el.className = "pull-tip show" + (d >= PULL_TRIGGER ? " ready" : "");
+    el.style.transform = "translate(-50%, " + Math.round(d - 44) + "px)";
+    el.textContent = d >= PULL_TRIGGER ? "松开刷新" : "下拉刷新";
+  }
+
+  function doPullRefresh() {
+    var fn = pullAction();
+    if (!fn) { paintPull(0); return; }
+    _pull.busy = true;
+    var el = pullTipEl();
+    el.className = "pull-tip show busy";
+    el.style.transform = "translate(-50%, 0)";
+    el.textContent = "正在刷新…";
+    try {
+      fn();
+    } catch (e) { /* 刷新失败不影响当前页面 */ }
+    setTimeout(function () {
+      _pull.busy = false;
+      paintPull(0);
+    }, 800);
+  }
+
+  document.addEventListener("touchstart", function (ev) {
+    if (ev.touches.length !== 1) return;
+    if (_pull.busy) return;
+    var sc = document.scrollingElement || document.documentElement;
+    if (sc && sc.scrollTop > 0) return;
+    if (!pullAction()) return;
+    _pull.active = true;
+    _pull.startY = ev.touches[0].clientY;
+    _pull.dist = 0;
+  }, { passive: true });
+
+  document.addEventListener("touchmove", function (ev) {
+    if (!_pull.active || _pull.busy) return;
+    var dy = ev.touches[0].clientY - _pull.startY;
+    if (dy <= 0) {
+      _pull.dist = 0;
+      paintPull(0);
+      return;
+    }
+    _pull.dist = Math.min(PULL_MAX, dy * 0.55);
+    paintPull(_pull.dist);
+    /* 下拉时把浏览器的原生回弹/下拉刷新压住，否则两套手势打架 */
+    if (ev.cancelable && dy > 8) ev.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("touchend", function () {
+    if (!_pull.active) return;
+    var d = _pull.dist;
+    _pull.active = false;
+    if (d >= PULL_TRIGGER) doPullRefresh();
+    else paintPull(0);
+  }, { passive: true });
+
+  document.addEventListener("touchcancel", function () {
+    if (!_pull.active) return;
+    _pull.active = false;
+    paintPull(0);
+  }, { passive: true });
+
   document.addEventListener("input", function (ev) {
     var el = ev.target;
     var act = el.getAttribute && el.getAttribute("data-act");
