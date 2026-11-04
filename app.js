@@ -6,6 +6,26 @@
 (function () {
   "use strict";
 
+  /* ================= 兜底：把没接住的异常留下来 =================
+     release 版 WebView 不打印 console，页面一旦在 render 里抛异常，
+     表现就是"界面卡住不动"——查不到任何线索。这里把最近一次错误写进
+     localStorage，设置页「关于」里能看到，排查时不用连电脑。 */
+  var ERR_KEY = "sz.lastError.v1";
+  function keepError(msg) {
+    try {
+      localStorage.setItem(ERR_KEY, String(msg || "").slice(0, 400) + " @ " +
+        new Date().toLocaleString("zh-CN"));
+    } catch (e) {}
+  }
+  window.addEventListener("error", function (ev) {
+    var where = (ev.filename || "").split("/").pop() + ":" + (ev.lineno || 0);
+    keepError((ev.message || "script error") + " (" + where + ")");
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    var r = ev.reason;
+    keepError("promise: " + ((r && (r.message || r)) || "unknown"));
+  });
+
   /* ================= 存储 ================= */
 
   var STORE_KEY = "sz.book.v5";
@@ -3349,6 +3369,21 @@
       }
       render();
       toast("发出去了");
+
+      /* 兜底：之前出现过"评论写进库了、界面却一直停在发送中"——
+         本地拼接在某些时序下没生效（比如 detail 还停在列表缓存那条上，
+         它没有 comments 字段，拼进去也画不出来）。
+         这里 600ms 后核对一次，没看到这条就整页重拉。 */
+      setTimeout(function () {
+        var dd = decideState();
+        if (dd.detailId !== id) return;
+        var got = (dd.detail && dd.detail.comments) || [];
+        var found = false;
+        for (var i = 0; i < got.length; i++) {
+          if (got[i] && got[i].id === r.body.id) { found = true; break; }
+        }
+        if (!found) loadDecisionDetail(id);
+      }, 600);
     }).catch(function () {
       d.commentBusy = false;
       toast("网络不通");
@@ -3367,7 +3402,20 @@
     }
 
     var p = d.detail && d.detail.id === id ? d.detail : null;
+    /* 完整详情（含评论）要一次隧道往返，慢的时候要好几秒。
+       列表里其实已经有这条帖子的全部展示字段（标题/金额/票数/作者），
+       所以先用它顶上——点进去立刻有内容，评论区分开慢慢加载。
+       以前是干等骨架屏，用户会以为卡死了。 */
+    var fromList = false;
+    if (!p) {
+      for (var li = 0; li < (d.items || []).length; li++) {
+        if (d.items[li].id === id) { p = d.items[li]; fromList = true; break; }
+      }
+    }
     if (!p && !d.detailLoading && !d.detailError) {
+      setTimeout(function () { loadDecisionDetail(id); }, 0);
+    }
+    if (p && !d.detail && !d.detailLoading && !d.detailError) {
       setTimeout(function () { loadDecisionDetail(id); }, 0);
     }
 
@@ -3402,6 +3450,7 @@
     "</div>";
 
     var cms = p.comments || [];
+    var commentsPending = !cms.length && (fromList || d.detailLoading || !d.detail);
     var list = cms.length
       ? cms.map(function (c) {
           var tag = c.kind === "vote"
@@ -3429,7 +3478,9 @@
             '<div class="dc-cmt-f">' + likeBtn + replyBtn + "</div>" +
           "</div>";
         }).join("")
-      : '<div class="dc-cmt-empty">还没有人留话</div>';
+      : (commentsPending
+          ? '<div class="dc-cmt-empty">正在加载评论…</div>'
+          : '<div class="dc-cmt-empty">还没有人留话</div>');
 
     var replyHint = d.replyTo
       ? '<div class="dc-reply-hint">回复 <b>' + esc(d.replyTo.author) + "</b>" +
