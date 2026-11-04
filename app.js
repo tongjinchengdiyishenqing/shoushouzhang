@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold3";
+  var BUILD_ID = "20261104-hold4";
 
   var DEFAULTS = {
     wallets: [
@@ -867,6 +867,7 @@
     hShares: "",
     hCost: "",
     hFee: "",
+    hDay: ymd(new Date()),
     /* 报价拉取状态：idle / loading / ok / fail */
     quoteState: "idle",
     quoteFailAt: 0,
@@ -1586,8 +1587,14 @@
          否则卖出时算出来的收益率会虚高（券商的钱也是钱）。 */
       var fee = Math.round(h.feeCents || 0);
       var cost = Math.round(h.shares * h.costCents) + fee;
+      /* 买入日期：分红税按持有时间分级，所以这个日期不是装饰，是要用的 */
+      var buy = String(h.buyDay || "");
+      var held = /^\d{4}-\d{2}-\d{2}$/.test(buy)
+        ? Math.max(0, Math.floor((Date.now() - new Date(buy + "T00:00:00").getTime()) / 86400000))
+        : null;
       return {
         id: h.id, code: h.code, name: h.name || h.code, shares: h.shares,
+        buyDay: buy, heldDays: held,
         costCents: h.costCents, feeCents: fee, priceCents: price,
         avgCost: h.shares > 0 ? Math.round(cost / h.shares) : h.costCents,
         mv: mv, cost: cost, pnl: mv - cost,
@@ -1784,6 +1791,10 @@
                     " (" + (x.pnlPct >= 0 ? "+" : "") + x.pnlPct.toFixed(1) + "%)") +
                 "</span>" +
               "</div>" +
+              (x.buyDay
+                ? '<div class="hline"><span class="sub2">买入 ' + esc(x.buyDay) +
+                  (x.heldDays != null ? " · 持有 " + x.heldDays + " 天" : "") + "</span></div>"
+                : "") +
             "</div>" +
           "</div>";
         }).join("")
@@ -1809,7 +1820,7 @@
         "<b>成本怎么算</b>" +
         "<p>总成本 = 股数 × 成交价 + 手续费，摊薄成本价 = 总成本 ÷ 股数。手续费（券商佣金、过户费、印花税）算进成本，所以这里的盈亏是从真金白银开始算的。</p>" +
         "<b>同一只买两次</b>" +
-        "<p>不会多开一行：股数相加、成交价按股数加权平均、手续费累加，行上显示「摊薄@」就是合并后的真实单价。</p>" +
+        "<p>不会多开一行：股数相加、成交价按股数加权平均、手续费累加，行上显示「摊薄@」就是合并后的真实单价；买入日期取最早那次。</p>" +
         "<b>现价从哪来</b>" +
         "<p>点 hero 上的「刷新」拉最新行情；拉不到就拿成本价顶着，盈亏显示「待更新」，不会乱算。</p>" +
         "<b>想删一只</b>" +
@@ -1898,7 +1909,12 @@
         '<div class="card-title"><span class="step-no">2</span>买了多少</div>' +
         '<div class="field-row"><label>股数</label><input data-act="hShares" type="number" inputmode="decimal" placeholder="100" value="' + esc(ui.hShares) + '"></div>' +
         '<div class="field-row"><label>成交价</label><input data-act="hCost" type="number" inputmode="decimal" placeholder="7.25" value="' + esc(ui.hCost) + '"></div>' +
-        '<div class="fine-inline">成交价是「一股多少钱」，不是这一笔的总金额。A 股买入按手（100 股）成交。</div>' +
+        '<div class="field-row"><label>买入日期</label>' +
+          '<input type="date" data-act="hDay" value="' + esc(ui.hDay) + '">' +
+          '<span class="day-quick" data-act="hDayOffset" data-v="1">昨天</span>' +
+          '<span class="day-quick" data-act="hDayOffset" data-v="2">前天</span>' +
+        "</div>" +
+        '<div class="fine-inline">成交价是「一股多少钱」，不是这一笔的总金额。买入日期用来算持有天数——分红税按持有时间分档（1 个月内 20%、1 年内 10%、满 1 年免），所以别随手填。</div>' +
       "</div>" +
 
       '<div class="card ov-card">' +
@@ -1919,7 +1935,8 @@
         "<b>股数</b><p>填券商回单上的实际成交股数，零股就填零股（比如 300）。</p>" +
         "<b>成交价</b><p>填成交均价，不是现价、也不是昨收。填错了删掉重加就行。</p>" +
         "<b>手续费为什么要填</b><p>加上它成本价才是你真实付出的单价，卖出算盈亏时才不会把券商的钱算成自己赚的。</p>" +
-        "<b>同一只再加一次</b><p>不会开新行：股数相加，成交价按股数加权，手续费累加。</p>" +
+        "<b>买入日期</b><p>填券商回单上的成交日。分红到账时按它算持有天数，决定这笔分红扣多少税。</p>" +
+        "<b>同一只再加一次</b><p>不会开新行：股数相加，成交价按股数加权，手续费累加，日期取最早那次（算持有期从第一次买入起）。</p>" +
       "</div>";
   }
 
@@ -5408,6 +5425,9 @@
     var cost = parseFloat(ui.hCost);
     var fee = parseFloat(ui.hFee);
     if (!isFinite(fee) || fee < 0) fee = 0;
+    /* 日期没填/填坏就用今天，不让一条坏日期毁掉整笔记录 */
+    var buyDay = String(ui.hDay || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(buyDay)) buyDay = ymd(new Date());
     if (!code) { toast("先选股票"); return; }
     if (!isFinite(shares) || shares <= 0) { toast("股数不对"); return; }
     if (!isFinite(cost) || cost <= 0) { toast("成交价不对"); return; }
@@ -5424,17 +5444,21 @@
       exist.shares = oldShares + shares;
       exist.costCents = Math.round((oldShares * oldCost + shares * costCents) / exist.shares);
       exist.feeCents = Math.round((exist.feeCents || 0) + feeCents);
+      /* 持有期从第一次买入算起：日期取更早的那个 */
+      if (!exist.buyDay || buyDay < exist.buyDay) exist.buyDay = buyDay;
       if (name) exist.name = name;
       toast("已合并，摊薄成本 " + money(Math.round((exist.shares * exist.costCents + exist.feeCents) / exist.shares)));
     } else {
       db.holdings.push({
         id: uid("h"), code: code, name: name || code,
         shares: shares, costCents: costCents, feeCents: feeCents,
+        buyDay: buyDay,
         priceCents: null, priceAt: 0
       });
       toast("已加 " + (name || code));
     }
     ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = ""; ui.hFee = "";
+    ui.hDay = ymd(new Date());
     _nameLooked = ""; _autoName = "";   // 重置查询缓存，下一只重新查
     save();
     /* 加完回持仓页看结果，别把人留在空表单上不知道该干嘛 */
@@ -5587,9 +5611,18 @@
     else if (act === "sdDivSync") { startDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivConfirm") { commitDivSync(el.getAttribute("data-code") || ""); }
     else if (act === "sdDivCancel") { stockState().sync = null; render(); }
+    else if (act === "hDayOffset") {
+      /* 补记：一键把买入日期挪到昨天/前天 */
+      var od = Number(el.getAttribute("data-v")) || 1;
+      var dd = new Date();
+      dd.setDate(dd.getDate() - od);
+      ui.hDay = ymd(dd);
+      render();
+    }
     else if (act === "goHoldingNew") {
       /* 每次进来都是空表单：残留草稿会让人照错的数字再加一笔 */
       ui.hCode = ""; ui.hName = ""; ui.hShares = ""; ui.hCost = ""; ui.hFee = "";
+      ui.hDay = ymd(new Date());
       _nameLooked = ""; _autoName = "";
       location.hash = "#/holdingnew";
     }
@@ -5842,6 +5875,7 @@
     else if (act === "hShares") { ui.hShares = el.value; paintHCalc(); }
     else if (act === "hCost") { ui.hCost = el.value; paintHCalc(); }
     else if (act === "hFee") { ui.hFee = el.value; paintHCalc(); }
+    else if (act === "hDay") ui.hDay = el.value;
     else if (act === "wName") ui.wName = el.value;
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
