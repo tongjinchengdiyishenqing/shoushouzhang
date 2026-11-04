@@ -155,10 +155,10 @@
   .login .ipt::placeholder{color:var(--dim-2)}
   .pwd-wrap{position:relative}
   .pwd-wrap .ipt{padding-right:58px}
-  .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;
-    color:var(--dim);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;
-    padding:8px 9px;border-radius:7px}
-  .eye:hover{background:var(--surface-2);color:var(--txt)}
+  .login .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;
+    width:auto;margin:0;background:transparent;color:var(--dim);font-family:inherit;
+    font-size:12px;font-weight:600;cursor:pointer;padding:7px 9px;border-radius:7px;line-height:1.2}
+  .login .eye:hover{background:var(--surface-2);color:var(--txt)}
   .who-badge{font-size:12px;color:var(--dim);font-weight:600;white-space:nowrap}
   @media (max-width:560px){ .who-badge{display:none} }
   .login button{width:100%;margin-top:10px;padding:11px;font-size:14px;
@@ -318,7 +318,7 @@
 
   <div class="foot">
     数据只读 · 账本在云端是密文，这里看不到内容<br>
-    后端没配 <code>ADMIN_KEY</code> 时整组接口返回 404
+    后端没配 <code>ADMIN_PASSWORD</code> 时整组接口返回 404 · 登录 12 小时后过期
   </div>
 </div>
 
