@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-auto1";
+  var BUILD_ID = "20261105-rules1";
 
   var DEFAULTS = {
     wallets: [
@@ -1978,6 +1978,121 @@
 
 
 
+  /* ================= 视图：选股榜单 =================
+     后端 /screener 早就做好了（评分/股息率/每股分红/增速都能筛），前端一直没入口。
+     这里只做「按股息挑股票」这一件事：排序 + 两个阈值，点一行进个股页看细节。 */
+
+  var PICK_SORTS = [
+    { k: "score", t: "评分" },
+    { k: "yield", t: "股息率" },
+    { k: "dps", t: "每股分红" },
+    { k: "growth", t: "分红增速" }
+  ];
+
+  function pickState() {
+    if (!ui.pick) {
+      ui.pick = { sort: "score", minScore: 0, minYield: 0, loading: false, res: null, err: "", at: 0 };
+    }
+    return ui.pick;
+  }
+
+  function pickLoad() {
+    var p = pickState();
+    p.loading = true;
+    p.err = "";
+    render();
+    var q = ["sort=" + encodeURIComponent(p.sort), "order=desc", "limit=60"];
+    if (Number(p.minScore) > 0) q.push("min_score=" + Number(p.minScore));
+    if (Number(p.minYield) > 0) q.push("min_yield=" + Number(p.minYield));
+    apiFetch("/screener?" + q.join("&"), {})
+      .then(function (r) {
+        if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
+        p.res = r.body;
+        p.loading = false;
+        p.at = Date.now();
+        render();
+      })
+      .catch(function (e) {
+        p.loading = false;
+        p.err = "拉不到榜单" + (e && e.message ? "：" + e.message : "");
+        render();
+      });
+  }
+
+  function viewPick() {
+    var p = pickState();
+    var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>选股榜单</h1>' +
+      '<div class="icon-btn"></div></div>';
+
+    var sortChips = PICK_SORTS.map(function (x) {
+      return '<span class="hfee-q' + (p.sort === x.k ? " on" : "") +
+        '" data-act="pickSort" data-v="' + x.k + '">' + x.t + "</span>";
+    }).join("");
+
+    var scoreChips = [0, 60, 70, 80].map(function (v) {
+      return '<span class="hfee-q' + (Number(p.minScore) === v ? " on" : "") +
+        '" data-act="pickMinScore" data-v="' + v + '">' +
+        (v ? "≥" + v + " 分" : "不限评分") + "</span>";
+    }).join("");
+
+    var yieldChips = [0, 3, 4, 5].map(function (v) {
+      return '<span class="hfee-q' + (Number(p.minYield) === v ? " on" : "") +
+        '" data-act="pickMinYield" data-v="' + v + '">' +
+        (v ? "≥" + v + "%" : "不限股息") + "</span>";
+    }).join("");
+
+    var form = '<div class="card ov-card">' +
+      '<div class="card-title">怎么排</div>' +
+      '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
+      '<div class="card-title" style="padding-top:12px">评分门槛</div>' +
+      '<div class="chips-scroll hfee-row">' + scoreChips + "</div>" +
+      '<div class="card-title" style="padding-top:12px">股息率门槛</div>' +
+      '<div class="chips-scroll hfee-row">' + yieldChips + "</div>" +
+      "</div>";
+
+    var body;
+    if (p.loading) {
+      body = '<div class="card ov-card"><div class="sd-note">正在筛…</div></div>';
+    } else if (p.err) {
+      body = '<div class="card ov-card"><div class="sd-note">' + esc(p.err) +
+        ' · <span class="kl-retry" data-act="pickReload">重试</span></div></div>';
+    } else if (!p.res) {
+      body = '<div class="card ov-card"><div class="sd-note">选好排序和门槛，点下面开始筛。</div></div>' +
+        '<button class="btn-primary" data-act="pickReload">开始筛选</button>';
+    } else {
+      var items = p.res.items || [];
+      var rows = items.map(function (x) {
+        var y = x.current_yield != null ? (Number(x.current_yield) * 100).toFixed(2) + "%" : "—";
+        var sc = x.composite_score != null ? Number(x.composite_score).toFixed(0) : "—";
+        var dps = x.predicted_d0 != null ? "¥" + Number(x.predicted_d0).toFixed(2) : "—";
+        var g = x.predicted_g != null ? (Number(x.predicted_g) * 100).toFixed(1) + "%" : "—";
+        return '<div class="pk-row" data-act="openStock" data-code="' + esc(x.ts_code) + '">' +
+          '<div class="pk-l">' +
+            '<div class="pk-nm">' + esc(x.name || x.ts_code) + "</div>" +
+            '<div class="pk-sub">' + esc(x.ts_code) +
+              (x.industry ? " · " + esc(String(x.industry).slice(0, 10)) : "") + "</div>" +
+          "</div>" +
+          '<div class="pk-r">' +
+            '<div class="pk-yield">' + y + "</div>" +
+            '<div class="pk-score">评分 ' + sc + " · 分红 " + dps + "（" + g + "）</div>" +
+          "</div>" +
+        "</div>";
+      }).join("");
+
+      body = '<div class="card ov-card">' +
+        '<div class="card-title">共 ' + (p.res.total != null ? p.res.total : items.length) + " 只符合" +
+          '<span class="kl-cap">按最近评分日，不是实时行情</span></div>' +
+        (rows || '<div class="sd-note">这个门槛下没有股票，放宽一点再试。</div>') +
+      "</div>" +
+      '<button class="btn-ghost sd-del-hold" data-act="pickReload" ' +
+        'style="border-color:#e4eff5;background:#fafafb;color:#4a4a54">重新筛</button>' +
+      '<div class="fine-inline" style="text-align:center;padding-bottom:26px">' +
+        "评分是股息质量的综合分，不构成投资建议。</div>";
+    }
+
+    return head + form + body;
+  }
+
   /* ================= 视图：分红复投测算 =================
      后端 /portfolio/simulate 已经是完整的三情景蒙特卡洛：给定每年投多少、投几年、
      目标生活费，返回悲观/中性/乐观三条资产与分红曲线，以及"哪一年能覆盖"。
@@ -3321,6 +3436,41 @@
     return head + (hs ? "" : "") + body;
   }
 
+  /* ================= 视图：自动记账规则 =================
+     「这家店我上次设成吃饭」——规则就是这件事的记忆。
+     有了它，同一个商户下次自动填好分类，用户只需要点确认。 */
+  function viewAutoRules() {
+    var keys = Object.keys(db.autoRules || {});
+    var rows = keys.map(function (k) {
+      var r = ruleOf(k);
+      var tag = r && r.tagId ? db.tags.filter(function (t) { return t.id === r.tagId; })[0] : null;
+      var w = r && r.walletId ? db.wallets.filter(function (x) { return x.id === r.walletId; })[0] : null;
+      var flowTxt = r && r.flow === "in" ? "收入" : r && r.flow === "move" ? "转账" : r && r.flow === "out" ? "支出" : "";
+      var bits = [];
+      if (flowTxt) bits.push(flowTxt);
+      if (tag) bits.push(tag.name);
+      if (w) bits.push(w.name);
+      return '<div class="pl-row">' +
+        '<div class="pl-row-h"><b>' + esc(k) + "</b>" +
+          '<span class="hint">' + esc(bits.join(" · ") || "只记了分类") + "</span></div>" +
+        '<div class="au-chips" style="margin-top:6px">' +
+          '<span class="au-del-inline" data-act="dropAutoRule" data-k="' + esc(k) + '">删除这条规则</span>' +
+        "</div>" +
+      "</div>";
+    }).join("");
+
+    return setHead("自动记账规则") +
+      '<div class="card ov-card">' +
+        '<div class="card-title">' + (keys.length ? keys.length + " 条规则" : "还没有规则") + "</div>" +
+        (keys.length ? rows
+          : '<div class="fine-inline">在「自动识别」里确认一笔时，改过的分类会按商户记住。' +
+            "下次同一个商户（比如「楼下小卖部」）自动填好，你只需要点确认。</div>") +
+      "</div>" +
+      (keys.length
+        ? '<button class="btn-ghost sd-del-hold" data-act="dropAllAutoRules">清空全部规则</button>'
+        : "");
+  }
+
   /* ================= 视图：财务全景 ================= */
 
   function viewOverview() {
@@ -3445,6 +3595,10 @@
         '<div class="list-row"><span>浮动盈亏</span><span class="hint" style="color:' + (hs.pnl >= 0 ? "var(--pos)" : "var(--neg)") + '">' +
           (hs.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(hs.pnl)) + "</span></div>" +
         '<div class="list-row" data-act="goHoldings"><span>管理持仓</span><span class="hint">' + hs.list.length + " 只 ›</span></div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
+        '<div class="list-row" data-act="goPick"><span>选股榜单</span>' +
+          '<span class="hint">按股息质量挑股票 ›</span></div>' +
       "</div>" +
       '<div class="card ov-card"><div class="card-title">躺平测算</div>' +
         '<div class="list-row" data-act="goPlan"><span>分红复投测算</span>' +
@@ -3571,6 +3725,46 @@
     if (_rawTimer) { clearInterval(_rawTimer); _rawTimer = null; }
   }
 
+  /* ---------- 商户规则 ----------
+     老版本存的是「商户 → tagId」字符串；现在多存 flow / walletId。
+     读的时候统一成对象，写的时候一律写对象，旧值不用迁移也能用。 */
+  function ruleOf(merchant) {
+    var key = String(merchant || "").trim();
+    if (!key) return null;
+    var r = (db.autoRules || {})[key];
+    if (!r) return null;
+    if (typeof r === "string") return { tagId: r, flow: "", walletId: "" };
+    return r;
+  }
+
+  function saveRule(merchant, tagId, flow, walletId) {
+    var key = String(merchant || "").trim();
+    if (!key) return;
+    db.autoRules = db.autoRules || {};
+    db.autoRules[key] = {
+      tagId: tagId || "",
+      flow: flow || "",
+      walletId: walletId || ""
+    };
+  }
+
+  function ruleCount() {
+    return Object.keys(db.autoRules || {}).length;
+  }
+
+  /* 把规则套到待确认条目上，并标记来源，界面要告诉用户"这是按规则来的" */
+  function applyRules(list) {
+    (list || []).forEach(function (it) {
+      var r = ruleOf(it.merchant);
+      if (!r) return;
+      if (r.flow && r.flow !== it.flow) it.flow = r.flow;
+      if (r.tagId && it.flow !== "move") it.tagId = r.tagId;
+      if (r.walletId) it.walletId = r.walletId;
+      it.byRule = true;
+    });
+    return list;
+  }
+
   function loadPendingRaw() {
     if (!auth || !auth.token || _rawLoading) return;
     _rawLoading = true;
@@ -3604,6 +3798,7 @@
           out.push(it);
         });
       });
+      applyRules(out);   // 老商户按上次定的分类/账户自动填好
       // 内容没变就别重绘，免得用户正在输入时被打断
       var sig = out.map(function (x) { return x.rawId; }).join(",");
       if (sig === a._rawSig) return;
@@ -3832,8 +4027,7 @@
       }
       db.entries.unshift(e);
       if (it.merchant && it.flow !== "move") {
-        db.autoRules = db.autoRules || {};
-        db.autoRules[it.merchant] = it.tagId;
+        saveRule(it.merchant, it.tagId, it.flow, it.walletId);
       }
       if (it.rawId) {
         // 入账后同样要挡住轮询：后端标记是异步的，不挡就会又被拉回待确认
@@ -3853,6 +4047,32 @@
   /* 同一张图连点两次「全部记下」，或者识别完手滑再点一次，
      原来会老老实实记两遍 —— 记账 App 里重复流水比少记一笔更伤（对账永远差）。
      判据：同一天 + 同方向 + 同金额 + 同商户，且已存在的是自动/分红来的流水。 */
+  /* 一键忽略：识别错了、或者根本不想记，整批丢掉，不用一条条点 ✕ */
+  function autoRemoteIgnoreAll() {
+    var a = autoState();
+    var list = a.remote || [];
+    if (!list.length) { toast("没有待确认的"); return; }
+    askConfirm({
+      title: "忽略这 " + list.length + " 笔？",
+      body: "只是不进账本；以后再识别到同一笔还会出现。",
+      ok: "全部忽略", danger: true,
+      onOK: function () {
+        list.forEach(function (it) {
+          if (it.rawId) {
+            rememberDropped(it.rawId);
+            markRawDone(it.rawId, "ignored");
+          }
+        });
+        var n = list.length;
+        a.remote = [];
+        a._rawSig = "";
+        render();
+        refreshPendingCount(true);
+        toast("已忽略 " + n + " 笔");
+      }
+    });
+  }
+
   function autoDupKey(it) {
     return [it.day, it.flow, it.cents, String(it.merchant || "").trim()].join("|");
   }
@@ -3899,8 +4119,7 @@
       db.entries.unshift(e);
       // 学习：这个商户用了这个分类，下次直接照抄
       if (it.merchant && it.flow !== "move") {
-        db.autoRules = db.autoRules || {};
-        db.autoRules[it.merchant] = it.tagId;
+        saveRule(it.merchant, it.tagId, it.flow, it.walletId);
       }
       n++;
     });
@@ -3967,7 +4186,8 @@
         '<div class="au-main">' +
           '<input class="au-name au-edit" data-act="auNameRemote" data-id="' + i + '" value="' +
             esc(it.merchant || "") + '" placeholder="商户名可改" maxlength="30">' +
-          '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) + "</div>" +
+          '<div class="au-why">' + esc(it.day) + " · " + esc(it.why) +
+            (it.byRule ? ' · <em class="au-rule">按规则</em>' : "") + "</div>" +
         "</div>" +
         '<div class="au-right">' +
           '<div class="au-amt' + (it.flow === "in" ? " in" : "") + '">' +
@@ -3992,6 +4212,8 @@
       ? '<div class="au-sec-title">自动采集 · ' + (a.remote || []).length + " 笔待确认</div>" +
         '<div class="au-list">' + remoteRows + "</div>" +
         '<button class="btn-primary" data-act="autoRemoteCommit">确认记下（' + (a.remote || []).length + " 笔）</button>" +
+        '<button class="btn-ghost au-ignore-all" data-act="autoRemoteIgnoreAll">全部忽略（' +
+          (a.remote || []).length + " 笔）</button>" +
         '<div class="au-skip">来自通知监听 / 悬浮球截图等采集端，确认后才入账</div>'
       : "";
 
@@ -5022,6 +5244,8 @@
           '<span class="hint">' + db.wallets.length + " 个 ›</span></div>" +
         '<div class="list-row" data-act="goTags"><span>分类</span>' +
           '<span class="hint">' + db.tags.length + " 个 ›</span></div>" +
+        '<div class="list-row" data-act="goAutoRules"><span>自动记账规则</span>' +
+          '<span class="hint">' + (ruleCount() ? ruleCount() + " 条 ›" : "还没有 ›") + "</span></div>" +
         '<div class="list-row" data-act="setGo" data-p="about"><span>关于与更新</span>' +
           '<span class="hint">v' + APP_VERSION + " ›</span></div>" +
       "</div>" +
@@ -5547,6 +5771,8 @@
   VIEW_PARENT.holdingnew = "holdings";   // 添加持仓退回持仓页
   VIEW_PARENT.holdingedit = "holdings";  // 修改持仓退回持仓页
   VIEW_PARENT.plan = "overview";         // 测算退回财务全景
+  VIEW_PARENT.autorules = "config";      // 规则退回设置
+  VIEW_PARENT.pick = "assets";           // 选股退回资产页
 
   function goBack() {
     var v = parseHash().view;
@@ -5629,6 +5855,8 @@
     else if (r.view === "holdingnew") body = viewHoldingNew();
     else if (r.view === "holdingedit") body = viewHoldingEdit();
     else if (r.view === "plan") body = viewPlan();
+    else if (r.view === "autorules") body = viewAutoRules();
+    else if (r.view === "pick") body = viewPick();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -5660,9 +5888,9 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
-      : (r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
+      : (r.view === "pick" || r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
          r.view === "overview" || r.view === "stock" || r.view === "plan") ? "assets"
-      : (r.view === "wallets" || r.view === "tags" || r.view === "config") ? "config"
+      : (r.view === "wallets" || r.view === "tags" || r.view === "config" || r.view === "autorules") ? "config"
       : r.view === "search" ? "book"
       : r.view;
     var tabs = isEntry
@@ -6949,6 +7177,12 @@
       var ul = apkUrlOf((ui.upd || {}).latest);
       toast(copyText(ul) ? "地址已复制，发到另一部手机打开" : ul);
     }
+    else if (act === "goAutoRules") { location.hash = "#/autorules"; }
+    else if (act === "goPick") { location.hash = "#/pick"; pickLoad(); }
+    else if (act === "pickReload") pickLoad();
+    else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
+    else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
     else if (act === "setBack") { location.hash = "#/config"; }
@@ -6977,6 +7211,34 @@
     else if (act === "goAuto") { autoState().parsed = false; location.hash = "#/auto"; }
     else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
     else if (act === "autoRemoteCommit") autoRemoteCommit();
+    else if (act === "autoRemoteIgnoreAll") autoRemoteIgnoreAll();
+    else if (act === "dropAutoRule") {
+      var dk = el.getAttribute("data-k") || "";
+      askConfirm({
+        title: "删掉「" + dk + "」的规则？",
+        body: "以后这个商户不再自动填分类。",
+        ok: "删除", danger: true,
+        onOK: function () {
+          delete db.autoRules[dk];
+          save();
+          render();
+          toast("已删除");
+        }
+      });
+    }
+    else if (act === "dropAllAutoRules") {
+      askConfirm({
+        title: "清空全部规则？",
+        body: "共 " + ruleCount() + " 条。清空后新识别的商户不再自动填分类。",
+        ok: "清空", danger: true,
+        onOK: function () {
+          db.autoRules = {};
+          save();
+          render();
+          toast("已清空");
+        }
+      });
+    }
     else if (act === "autoRemoteDrop") {
       var ar = autoState();
       var idx = Number(id);
