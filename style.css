@@ -3706,6 +3706,33 @@ html, body { overscroll-behavior-y: contain; }
 
 /* ---------- 选股榜单 ---------- */
 
+/* 顶部三档：综合 / 吃分红 / 吃修复
+   这不是筛选条件，是"你在问哪类问题"，所以做成实心分段控件、独立于筛选卡片 */
+.pk-strategy {
+  display: flex;
+  gap: 8px;
+  padding: 2px 18px 12px;
+}
+.pk-stg {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pk-stg:active { background: #eef4f8; }
+.pk-stg.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* 筛选面板：默认收成一条"条件摘要"，点「调整」才展开 —— 一屏 844px，
    筛选卡片全铺开要吃掉 300px，榜单直接被挤到第二屏，进来先看到的应该是股票。 */
 .pk-panel { padding: 2px 0 4px; }
@@ -3865,6 +3892,8 @@ html, body { overscroll-behavior-y: contain; }
 }
 .pk-cell { display: inline-flex; align-items: baseline; gap: 3px; }
 .pk-cell b { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+/* 分红覆盖率 >100%：派的钱超过赚的钱，标红提醒别当"高股息"追 */
+.pk-cell.warn b { color: var(--neg); }
 .pk-cell + .pk-cell { position: relative; margin-left: 10px; padding-left: 10px; }
 .pk-cell + .pk-cell::before {
   content: "";
