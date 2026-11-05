@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-pick5";
+  var BUILD_ID = "20261105-stats1";
 
   var DEFAULTS = {
     wallets: [
@@ -734,6 +734,14 @@
     var v = (Number(cents) || 0) / 100;
     return v.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+  /* 统计图表的金额：整数就不带 .00。
+     ¥3,200.00 在明细列表里既占宽又读着累，而记账用户看整数金额是常态；
+     真带角分（519.34）才显示两位。 */
+  function moneyLite(cents) {
+    var c = Math.round(Number(cents) || 0);
+    if (c % 100 === 0) return (c / 100).toLocaleString("zh-CN");
+    return (c / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   function cash(cents) {
     var n = Number(cents) || 0;
     return (n < 0 ? "−" : "") + "¥" + money(Math.abs(n));
@@ -1336,7 +1344,13 @@
     if (rest > 0) {
       head.push({ id: "t_misc", name: "其他 " + (rows.length - 6) + " 类", cents: rest, pct: total ? rest / total : 0 });
     }
-    head.forEach(function (t, idx) { t.color = STEPS[idx % STEPS.length]; });
+    /* 环图配色跟分类自己的颜色走：以前是灰阶（STEPS），而下面是彩色的图标和
+       刚改成分色的进度条——同一页三种色系，看着散。现在一处颜色贯穿到底。 */
+    head.forEach(function (t, idx) {
+      var isMisc = t.id === "t_misc" && String(t.name).indexOf("其他") === 0;
+      t.color = isMisc ? "#C9CDD4" : tagColor(tagById(t.id));
+      if (!t.color) t.color = STEPS[idx % STEPS.length];
+    });
 
     var R = 72, SW = 30, C = 2 * Math.PI * R, acc = 0;
     var segs = head.map(function (t) {
@@ -1374,12 +1388,17 @@
               }).length
             : s.list.filter(function (e) { return e.flow === flow && e.tagId === t.id; }).length;
           var pct = Math.round(t.pct * 100);
+          var tg = tagById(t.id);
+          /* 条形用这个分类自己的颜色（和左边圆形图标同色系），
+             以前全是纯黑，跟五颜六色的图标各说各话。
+             宽度最小 2%：1% 的类以前被撑到 5% 宽，看着像 5%，失真。 */
           return '<div class="rk">' +
-            '<div class="g"' + gStyle(tagById(t.id), false) + ">" + tagIcon(tagById(t.id)) + "</div>" +
+            '<div class="g"' + gStyle(tg, false) + ">" + tagIcon(tg) + "</div>" +
             '<div class="body">' +
               '<div class="r1"><span class="nm">' + esc(t.name) + "</span>" +
-                '<span class="amt">¥' + money(t.cents) + "</span></div>" +
-              '<div class="r2"><span class="track"><i style="width:' + Math.max(5, pct) + '%"></i></span>' +
+                '<span class="amt">¥' + moneyLite(t.cents) + "</span></div>" +
+              '<div class="r2"><span class="track"><i style="width:' + Math.max(2, pct) +
+                "%;background:" + tagColor(tg) + '"></i></span>' +
                 '<span class="pc">' + cnt + " 笔 · " + pct + "%</span></div>" +
             "</div>" +
           "</div>";
