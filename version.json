@@ -1,7 +1,7 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5",
-  "apk": "changliu-collector-1.5.apk",
+  "versionCode": 7,
+  "versionName": "1.6",
+  "apk": "changliu-collector-1.6.apk",
   "at": "2026-11-05",
-  "notes": "支付页只停留一秒也抓得到（进入支付App后每0.55秒主动截一张，不再等系统事件）；点通知进来立刻刷新待确认，不用手动下拉。"
+  "notes": "新增银行短信记账：刷卡/银行App转账也能自动记，短信原文不上传。同时修掉金额识别不认「支出人民币38.50元」这类短信写法的问题。"
 }
