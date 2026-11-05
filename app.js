@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-batchlegs1";
+  var BUILD_ID = "20261106-lines2";
 
   var DEFAULTS = {
     wallets: [
@@ -2316,6 +2316,7 @@
         strategy: "",    // ""=综合 / dividend=吃分红 / repair=吃估值修复
         maxPb: 0,        // 吃修复：PB 分位上限（0=不限）
         minDyPct: 0,     // 吃分红：股息率分位下限（0=不限）
+        line: "",        // 吃修复：""=全部破净 / bank=银行线 / nonbank=非银线
       };
     }
     return ui.pick;
@@ -2373,6 +2374,21 @@
     if (p.strategy) q.push("strategy=" + p.strategy);
     if (Number(p.maxPb) > 0) q.push("max_pb_pct=" + Number(p.maxPb));
     if (Number(p.minDyPct) > 0) q.push("min_dy_pct=" + Number(p.minDyPct));
+    /* 三条线各自的回测门槛，选哪条线就用哪套，不给用户手工改的机会：
+       全部破净  PB<1   + ROE>=6                                   140 只
+       银行线    PB<0.7 + ROE>=6，36 个月 → 胜率 85.5% / +43.6%    18 只
+       非银线    PB<0.8 + ROE>=6 + 净利率>=8 + 负债<=60，
+                 24 个月 → 胜率 77.3% / +39.7%                     12 只 */
+    if (p.strategy === "repair") {
+      if (p.line === "bank") {
+        q.push("line=bank", "max_pb=0.7", "min_roe=6");
+      } else if (p.line === "nonbank") {
+        q.push("line=nonbank", "max_pb=0.8", "min_roe=6",
+               "min_net_margin=8", "max_debt=60");
+      } else {
+        q.push("max_pb=1", "min_roe=6");
+      }
+    }
     apiFetch("/screener?" + q.join("&"), {})
       .then(function (r) {
         if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
@@ -2435,8 +2451,25 @@
     }
     var gateHtml = "";
     if (p.strategy === "repair") {
-      gateHtml += gate("PB 分位 ≤", "越低越便宜：现在处在历史什么位置",
-        "pickMaxPb", [0, 10, 20, 30], p.maxPb, function (v) { return v ? "≤" + v + "%" : "不限"; });
+      /* 三条线不是"排序方式"，是三种不同的生意：
+         银行负债率天然 90%+，用非银的负债门槛会把它全筛掉；
+         非银不需要 36 个月那么久。混在一起只能取交集，两头都不对。 */
+      var LINES = [
+        { k: "", t: "全部破净", s: "PB<1 · ROE≥6<br>140 只达标" },
+        { k: "bank", t: "银行", s: "PB<0.7 · ROE≥6<br>胜率 85.5%" },
+        { k: "nonbank", t: "其他", s: "PB<0.8 + 质量门槛<br>胜率 77.3%" }
+      ];
+      gateHtml += '<div class="pk-panel-hd">' +
+          '<span class="pk-panel-t">哪条线</span>' +
+          '<span class="kl-cap">门槛和回测胜率都不同，别混着看</span>' +
+        "</div>" +
+        '<div class="pk-lines">' +
+        LINES.map(function (x) {
+          return '<span class="pk-line' + (p.line === x.k ? " on" : "") +
+            '" data-act="pickLine" data-v="' + x.k + '">' +
+            '<b>' + x.t + '</b><i>' + x.s + "</i></span>";
+        }).join("") +
+        "</div>";
     } else if (p.strategy === "dividend") {
       gateHtml += gate("股息率 ≥", "绝对收益底线，别只看分位",
         "pickMinYield", [0, 3, 4, 5], p.minYield, function (v) { return v ? "≥" + v + "%" : "不限"; });
@@ -2484,8 +2517,8 @@
         '<div class="pk-sum" data-act="pickFilter">' +
           '<span class="pk-sum-k">排序</span><span class="pk-sum-v">' + esc(sortName) + "</span>" +
           (p.strategy === "repair"
-            ? '<span class="pk-sum-k">PB分位</span><span class="pk-sum-v">' +
-              esc(Number(p.maxPb) > 0 ? "≤" + p.maxPb + "%" : "不限") + "</span>"
+            ? '<span class="pk-sum-k">线</span><span class="pk-sum-v">' +
+              esc(p.line === "bank" ? "银行" : p.line === "nonbank" ? "其他" : "全部破净") + "</span>"
             : p.strategy === "dividend"
               ? '<span class="pk-sum-k">范围</span><span class="pk-sum-v">股息率≥3%</span>'
               : '<span class="pk-sum-k">便宜度</span><span class="pk-sum-v">' + esc(valName) + "</span>") +
@@ -8035,6 +8068,12 @@
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMaxPb") { var _mp = pickState(); _mp.maxPb = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickLine") {
+      var _ml = pickState();
+      _ml.line = el.getAttribute("data-v") || "";
+      _ml.res = null;   // 换了线就是换了股票池，先清空再拉，别让旧结果闪一下
+      pickLoad();
+    }
     else if (act === "pickMinDyPct") { var _md = pickState(); _md.minDyPct = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinValue") {
       /* 设了便宜度门槛就顺手把排序切到「便宜度」：
