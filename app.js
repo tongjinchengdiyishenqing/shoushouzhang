@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-honest1";
+  var BUILD_ID = "20261106-tpsl1";
 
   var DEFAULTS = {
     wallets: [
@@ -4118,13 +4118,27 @@
           '<div class="bt-w">' + lg.w + "</div>" +
         "</div>";
       }).join("");
+      /* 止盈止损按"三档都成交后的均价"算：均价 = (1 + 0.9 + 0.8) / 3 = 0.9 倍现价。
+         按首档价算会让止损位离真实成本更远，等于没设。 */
+      var avgCost = c0 * (1 + 0.9 + 0.8) / 3;
+      var tpPx = avgCost * 1.30;
+      var slPx = avgCost * 0.70;
+      var planRow = '<div class="bt-plan">' +
+          '<div class="bt-plan-h">三档都成交时，均价 ¥' + avgCost.toFixed(2) + "</div>" +
+          '<div class="bt-plan-b">' +
+            '<span class="bt-px tp">止盈 ¥' + tpPx.toFixed(2) + "<i>+30%</i></span>" +
+            '<span class="bt-px sl">止损 ¥' + slPx.toFixed(2) + "<i>-30%</i></span>" +
+          "</div></div>";
       btCard = '<div class="card ov-card bt-card"><div class="card-title">分批建仓' +
         '<span class="kl-cap">别一把梭，越跌越买</span></div>' +
         btRows +
+        planRow +
         '<div class="bt-foot">历史回测（2015-2026，8012 个"PB<1 且 ROE≥6"的样本点，' +
           '覆盖 8 个入场年份）：分批在每一年都比一把梭高 4~10 个百分点，' +
           '年份等权后 56.6% → 64.8%，最深浮亏 -13.7% → -9.7%。' +
-          '分批不保证赚钱，是保证买贵了也能把成本摊下来。回测不代表未来。</div>' +
+          '分批不保证赚钱，是保证买贵了也能把成本摊下来。' +
+          '止盈止损用 +30% / -30%：回测里更紧的止损反而更低胜率' +
+          '（-15% 止损胜率只剩 55%，正常波动就把你扫出去了）。回测不代表未来。</div>' +
       "</div>";
     }
     var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
