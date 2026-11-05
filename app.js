@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-rules1";
+  var BUILD_ID = "20261105-plan2";
 
   var DEFAULTS = {
     wallets: [
@@ -148,7 +148,9 @@
         entries: raw.entries,
         holdings: Array.isArray(raw.holdings) ? raw.holdings : [],
         // 自动识别的学习结果：商户名 → 分类 id，用户改过一次就记住
-        autoRules: raw.autoRules && typeof raw.autoRules === "object" ? raw.autoRules : {}
+        autoRules: raw.autoRules && typeof raw.autoRules === "object" ? raw.autoRules : {},
+        // 躺平计划：每年投多少 / 目标生活费（测算页存下来的）
+        plan: raw.plan && typeof raw.plan === "object" ? raw.plan : null
       };
     } else {
       db = { wallets: DEFAULTS.wallets.slice(), tags: DEFAULTS.tags.slice(), entries: seed(), holdings: [], autoRules: {} };
@@ -532,7 +534,9 @@
       tags: tags.length ? tags : DEFAULTS.tags.slice(),
       entries: entries,
       holdings: holdings,
-      autoRules: rules
+      autoRules: rules,
+      // 计划以本机为准（换设备登录时云端那份可能是老的）
+      plan: (local && local.plan) || (remote && remote.plan) || null
     };
   }
 
@@ -1488,6 +1492,26 @@
             '<span data-act="goWallets">去账户里设一下期初 ›</span></div>'
           : "") +
       "</div>" +
+      (function () {
+        var pp = planProgress();
+        if (!pp) return "";
+        return '<div class="card ov-card">' +
+          '<div class="card-title">我的计划' +
+            '<span class="kl-cap">每年 ' + fmtMoneyShort(pp.annual * 100) + ' 元 · 目标年生活费 ' +
+              fmtMoneyShort((pp.cost || 0) * 100) + "</span></div>" +
+          '<div class="pl-grid">' +
+            '<div><i>本月该投</i><b>¥' + money(pp.monthly * 100) + "</b></div>" +
+            '<div><i>本月已投</i><b>¥' + money(pp.done) + "</b></div>" +
+          "</div>" +
+          '<div class="plan-bar"><i style="width:' + pp.pct.toFixed(0) + '%"></i></div>' +
+          '<div class="fine-inline">' +
+            (pp.wallet
+              ? "按「转入" + esc(pp.wallet) + "」的钱算已投；没投够就转一下，记成转账即可。"
+              : "建一个名叫「投资户」的账户，往里转账就会被算成已投。") +
+          "</div>" +
+          '<div class="list-row" data-act="goPlan"><span>改计划 / 重新测算</span><span class="hint">›</span></div>' +
+        "</div>";
+      })() +
       '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
         '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
           '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
@@ -1991,19 +2015,44 @@
 
   function pickState() {
     if (!ui.pick) {
-      ui.pick = { sort: "score", minScore: 0, minYield: 0, loading: false, res: null, err: "", at: 0 };
+      ui.pick = { sort: "score", minScore: 0, minYield: 0, industry: "", inds: null,
+                  loading: false, res: null, err: "", at: 0 };
     }
     return ui.pick;
   }
 
+  /* 行业列表只拉一次；A 股行业一百多个，全列出来点不过来，取股票数最多的前 14 个。 */
+  function pickLoadIndustries() {
+    var p = pickState();
+    if (p.inds || p._indsLoading) return;
+    p._indsLoading = true;
+    apiFetch("/industries", {})
+      .then(function (r) {
+        p._indsLoading = false;
+        if (!r.ok || !r.body) return;
+        p.inds = (r.body || []).slice(0, 14).map(function (x) { return x.industry; });
+        render();
+      })
+      .catch(function () {
+        p._indsLoading = false;
+        /* 限流/断网时自动再来一次：这一行空了，用户就没法按行业筛 */
+        if (!p._indsRetried) {
+          p._indsRetried = true;
+          setTimeout(function () { pickLoadIndustries(); }, 3500);
+        }
+      });
+  }
+
   function pickLoad() {
     var p = pickState();
+    pickLoadIndustries();
     p.loading = true;
     p.err = "";
     render();
     var q = ["sort=" + encodeURIComponent(p.sort), "order=desc", "limit=60"];
     if (Number(p.minScore) > 0) q.push("min_score=" + Number(p.minScore));
     if (Number(p.minYield) > 0) q.push("min_yield=" + Number(p.minYield));
+    if (p.industry) q.push("industry=" + encodeURIComponent(p.industry));
     apiFetch("/screener?" + q.join("&"), {})
       .then(function (r) {
         if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
@@ -2048,6 +2097,14 @@
       '<div class="chips-scroll hfee-row">' + scoreChips + "</div>" +
       '<div class="card-title" style="padding-top:12px">股息率门槛</div>' +
       '<div class="chips-scroll hfee-row">' + yieldChips + "</div>" +
+      '<div class="card-title" style="padding-top:12px">行业</div>' +
+      '<div class="chips-scroll hfee-row">' +
+        '<span class="hfee-q' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
+        (p.inds || []).map(function (ind) {
+          return '<span class="hfee-q' + (p.industry === ind ? " on" : "") +
+            '" data-act="pickIndustry" data-v="' + esc(ind) + '">' + esc(String(ind).slice(0, 8)) + "</span>";
+        }).join("") +
+      "</div>" +
       "</div>";
 
     var body;
@@ -2305,10 +2362,37 @@
       }).join("");
 
       body = sum + '<div class="card ov-card"><div class="card-title">分项</div>' + per +
-        '<div class="fine-inline">' + esc(res.risk_notice || "情景模拟，不构成投资建议。") + "</div></div>";
+        '<div class="fine-inline">' + esc(res.risk_notice || "情景模拟，不构成投资建议。") + "</div></div>" +
+        '<button class="btn-primary" data-act="planSave">存为我的计划</button>' +
+        '<div class="fine-inline" style="text-align:center;padding-bottom:10px">' +
+          "存下来后，资产页会按这个计划算「本月该投多少」。" +
+        "</div>";
     }
 
     return head + form + body;
+  }
+
+  /* 我的计划：本月该投多少 + 本月已经转进投资户多少。
+     「已投」按本月「转入投资户」的转账算——这是用户真会做的动作，
+     比要求他每天标记「今天买了」现实得多。 */
+  function planProgress() {
+    var p = db.plan;
+    if (!p || !p.annual) return null;
+    var monthly = Math.round(p.annual / 12);
+    var ym = String(ui.month || thisMonth());
+    var invest = db.wallets.filter(function (w) { return /投资/.test(w.name); })[0];
+    var doneCents = 0;
+    db.entries.forEach(function (e) {
+      if (e.flow !== "move") return;
+      if (String(e.day || "").slice(0, 7) !== ym) return;
+      if (!invest || e.toWalletId !== invest.id) return;
+      doneCents += e.cents;
+    });
+    var pct = monthly > 0 ? Math.min(100, (doneCents / 100) / monthly * 100) : 0;
+    return {
+      monthly: monthly, done: doneCents, pct: pct,
+      annual: p.annual, cost: p.cost, wallet: invest ? invest.name : ""
+    };
   }
 
   /* ================= 视图：个股详情（股息体检） =================
@@ -3620,6 +3704,7 @@
       if (parseHash().view !== "auto") { location.hash = "#/auto"; }
       var a = autoState();
       a.remote = null;          // 丢掉旧列表，别拿旧数据先占位
+      a._rawSig = "";           // 同时把「内容没变就不重绘」的指纹清掉，否则这次拉取会被跳过
       a.err = "";
       loadPendingRaw();
       render();
@@ -3801,7 +3886,7 @@
       applyRules(out);   // 老商户按上次定的分类/账户自动填好
       // 内容没变就别重绘，免得用户正在输入时被打断
       var sig = out.map(function (x) { return x.rawId; }).join(",");
-      if (sig === a._rawSig) return;
+      if (sig === a._rawSig && a.remote && a.remote.length) return;
       a._rawSig = sig;
       a.remote = out;
       render();
@@ -7010,6 +7095,22 @@
       var vChips = el.getAttribute("data-v") || "";
       var bucket = act === "autoTag" ? aChips.items : aChips.remote;
       if (bucket && bucket[iChips]) bucket[iChips].tagId = vChips;
+      /* 同一商户的其它待确认一起改：一次付款被识别成两条、或者连着买几笔，
+         不用一条条点。改了就算用户表态，顺手记进规则。 */
+      var cur = bucket && bucket[iChips];
+      if (cur && cur.merchant) {
+        var same = 0;
+        bucket.forEach(function (x, k) {
+          if (k === iChips) return;
+          if (String(x.merchant || "").trim() !== String(cur.merchant).trim()) return;
+          if (x.flow === "move") return;
+          x.tagId = vChips;
+          same++;
+        });
+        saveRule(cur.merchant, vChips, cur.flow, cur.walletId);
+        save();
+        if (same > 0) toast("同商户另外 " + same + " 笔也改成这里了");
+      }
       render();
       return;
     }
@@ -7135,6 +7236,27 @@
       render();
     }
     else if (act === "planRun") runPlan();
+    else if (act === "planSave") {
+      var ps2 = planState();
+      db.plan = {
+        annual: Number(ps2.annual) || 0,
+        horizon: Number(ps2.horizon) || 0,
+        cost: Number(ps2.cost) || 0,
+        scope: ps2.scope || "",
+        at: Date.now()
+      };
+      save();
+      render();
+      toast("已存为我的计划");
+    }
+    else if (act === "planClear") {
+      askConfirm({
+        title: "撤掉这个计划？",
+        body: "只是不再显示，历史账本不受影响。",
+        ok: "撤掉", danger: true,
+        onOK: function () { delete db.plan; save(); render(); toast("已撤掉"); }
+      });
+    }
     else if (act === "klZoomIn" || act === "klZoomOut") {
       /* 按钮缩放：手机上万一手势被系统截走，这两个按钮一定点得动 */
       var wNow = KL.b - KL.a;
@@ -7183,6 +7305,7 @@
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickIndustry") { pickState().industry = el.getAttribute("data-v") || ""; pickLoad(); }
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
     else if (act === "setBack") { location.hash = "#/config"; }
