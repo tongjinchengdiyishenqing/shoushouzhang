@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-exit1";
+  var BUILD_ID = "20261106-fromlow1";
 
   var DEFAULTS = {
     wallets: [
@@ -2623,6 +2623,20 @@
           if (roeTrend) {
             var tc = roeTrend === "回升" ? "up" : roeTrend === "缓降" ? "down" : "flat";
             pctHtml = '<span class="pk-trend ' + tc + '">' + esc(roeTrend) + "</span>";
+          }
+          /* 距 24 月低点：这是"现在该不该下手"的判据，不是装饰。
+             回测 11021 个样本：距低点 0~20% 时 12 月内跌 10%+ 占 40%、
+             24 月收益 +13~22%；超过 40% 则是 54% 和 +1.5%。
+             10% 以内不占地方，超过才提醒。 */
+          if (x.from_low != null) {
+            var fl = Number(x.from_low);
+            if (fl > 20) {
+              pctHtml += '<span class="pk-fromlow far">距低点 +' +
+                Math.round(fl) + "%</span>";
+            } else if (fl > 10) {
+              pctHtml += '<span class="pk-fromlow">距低点 +' +
+                Math.round(fl) + "%</span>";
+            }
           }
         } else {
           vLabel = x.value_label || pickValueLabel(x.value_score, x.value_premium);
