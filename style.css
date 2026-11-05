@@ -3656,3 +3656,78 @@ html, body { overscroll-behavior-y: contain; }
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 待确认：按规则标记 / 全部忽略 ---------- */
+.au-rule {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--accent);
+  background: #e7f2f8;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 4px;
+}
+.au-ignore-all {
+  display: block;
+  width: calc(100% - 44px);
+  margin: 0 22px 10px;
+  height: 44px;
+  border: 1px solid #f0cfcd;
+  border-radius: var(--r-pill);
+  background: #fdf4f3;
+  color: var(--neg);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.au-ignore-all:active { opacity: 0.85; }
+.au-del-inline {
+  font-size: 12.5px;
+  color: var(--neg);
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: #fdf4f3;
+  cursor: pointer;
+}
+
+/* ---------- 选股榜单行 ---------- */
+.pk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.pk-row:last-child { border-bottom: none; }
+.pk-row:active { background: var(--paper-2); }
+.pk-l { min-width: 0; }
+.pk-nm {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pk-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.pk-r { text-align: right; flex: 0 0 auto; }
+.pk-yield {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pos);
+  font-variant-numeric: tabular-nums;
+}
+.pk-score {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
