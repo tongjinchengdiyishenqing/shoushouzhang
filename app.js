@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261107-mkt1";
+  var BUILD_ID = "20261107-dual1";
 
   var DEFAULTS = {
     wallets: [
@@ -2546,7 +2546,10 @@
             '<div class="mkt-big">' + Number(p.mkt.broken_pct).toFixed(1) + "%" +
               '<em class="mkt-zone ' + mTone + '">' + esc(mz) + "</em></div>" +
             '<div class="mkt-sub">比过去 72 个月里 ' +
-              Math.round(Number(p.mkt.percentile) || 0) + "% 的月份便宜</div>" +
+              Math.round(Number(p.mkt.percentile) || 0) + "% 的月份便宜" +
+              (p.mkt.candidates != null
+                ? " · 可分散标的 " + p.mkt.candidates + " 只"
+                : "") + "</div>" +
           "</div>" +
           '<div class="mkt-spark">' + bars + "</div>" +
         "</div>" +
