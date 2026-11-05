@@ -3309,11 +3309,13 @@ html, body { overscroll-behavior-y: contain; }
 
 /* 门槛类 chips（"只看便宜度 ≥12"这种）：
    和排序长得一样会让人以为两行在争同一个选择，这里改成蓝色描边 */
-.hfee-q.soft { background: #fff; border-color: #d7e6ef; color: var(--ink-2); }
+.hfee-q.soft { background: #fff; border-color: #dbe7ee; color: var(--ink-2); }
+/* 选中用蓝实心：淡蓝描边跟白底几乎分不出选没选，用户根本看不出自己在什么条件下看榜。
+   排序仍是黑实心、门槛用蓝实心——靠颜色区分"单选排序"和"独立门槛"，不靠深浅 */
 .hfee-q.soft.on {
-  background: #eaf4fa;
+  background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -3894,6 +3896,44 @@ html, body { overscroll-behavior-y: contain; }
 .pk-cell b { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
 /* 分红覆盖率 >100%：派的钱超过赚的钱，标红提醒别当"高股息"追 */
 .pk-cell.warn b { color: var(--neg); }
+
+/* ---------- 个股页：两种看法（吃分红 / 吃修复）---------- */
+.vw-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.vw-row:active { background: var(--paper-2); }
+.vw-k {
+  flex: 0 0 auto;
+  width: 46px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.vw-v {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vw-tag {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.vw-tag.cheap { background: #eaf6f0; color: var(--pos); }
+.vw-tag.fair { background: #eef4f8; color: var(--accent); }
+.vw-tag.rich { background: #fdf1ef; color: var(--neg); }
 
 /* ROE 趋势：修复档的关键信息——PB 低是打折，ROE 回升才说明资产还在赚钱 */
 .pk-trend {
