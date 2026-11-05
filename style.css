@@ -3691,46 +3691,185 @@ html, body { overscroll-behavior-y: contain; }
   cursor: pointer;
 }
 
-/* ---------- 选股榜单行 ---------- */
-.pk-row {
+/* ---------- 选股榜单 ---------- */
+
+/* 筛选面板：排序和便宜度是"必看"，股息率/评分/行业收进折叠区 */
+.pk-panel { padding-bottom: 6px; }
+.pk-panel-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px 8px;
+}
+.pk-panel-hd:first-child { padding-top: 16px; }
+.pk-panel-t {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.pk-more {
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 18px 2px;
+  padding: 9px 0;
+  border-radius: 12px;
+  background: #f7fafc;
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.pk-more:active { background: #eef4f8; }
+.pk-more-i { font-style: normal; font-size: 11px; opacity: 0.75; }
+.pk-adv {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+}
+.pk-adv.open { max-height: 460px; }
+.pk-adv-t {
+  padding: 12px 18px 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* 结果卡片头：把"共几只 / 价格时间 / 口径说明"收在一行，别再跟标题抢位置 */
+.pk-list-card { padding-bottom: 4px; }
+.pk-list-hd {
+  display: flex;
+  align-items: flex-end;
   justify-content: space-between;
+  gap: 10px;
+  padding: 15px 18px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-list-n { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pk-list-n b { font-size: 15px; color: var(--ink); }
+.pk-list-n span {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.pk-list-note { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+
+/* 一行榜单：左色条 + 三层信息 + 右侧价格 */
+.pk-row {
+  position: relative;
+  display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 11px 18px;
+  padding: 11px 18px 11px 20px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
 .pk-row:last-child { border-bottom: none; }
 .pk-row:active { background: var(--paper-2); }
-.pk-l { min-width: 0; }
+
+/* 色条：便宜=绿、合理=蓝灰、偏贵=红。扫列表时不读字也知道哪几只是便宜的 */
+.pk-stripe {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 30px;
+  border-radius: 999px;
+  background: #dfe7ec;
+}
+.pk-stripe.cheap { background: var(--pos); }
+.pk-stripe.fair { background: #9db6c4; }
+.pk-stripe.rich { background: var(--neg); }
+
+.pk-l { flex: 1 1 auto; min-width: 0; }
+.pk-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .pk-nm {
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 650;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .pk-sub {
-  margin-top: 2px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 指标行：三个"标签+数值"，数值大一号——别拿 · 串成一长句，扫不动 */
+.pk-meta {
+  display: flex;
+  align-items: baseline;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pk-cell { display: inline-flex; align-items: baseline; gap: 3px; }
+.pk-cell b { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.pk-cell + .pk-cell { position: relative; margin-left: 10px; padding-left: 10px; }
+.pk-cell + .pk-cell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 9px;
+  background: var(--line);
+}
+
+/* 徽章与百分位 */
+.pk-badge {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pk-badge.cheap { background: #eaf6f0; color: var(--pos); }
+.pk-badge.fair { background: #eef4f8; color: var(--accent); }
+.pk-badge.rich { background: #fdf1ef; color: var(--neg); }
+.pk-pct {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 价格区 */
+.pk-r { flex: 0 0 auto; text-align: right; min-width: 62px; }
+.pk-price {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.pk-price.muted { color: var(--ink-3); font-size: 14px; }
+.pk-chg {
+  margin-top: 1px;
   font-size: 11.5px;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.pk-r { text-align: right; flex: 0 0 auto; }
-.pk-yield {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--pos);
-  font-variant-numeric: tabular-nums;
-}
-.pk-score {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
+/* 行情口径：红涨绿跌（和记账页的"绿=收入/红=支出"故意相反，见代码注释） */
+.pk-chg.up { color: #c0453c; }
+.pk-chg.down { color: #1e7a58; }
+
 
 /* ---------- 我的计划：本月进度条 ---------- */
 .plan-bar {
@@ -3780,42 +3919,3 @@ html, body { overscroll-behavior-y: contain; }
 .val-score b { font-size: 18px; color: var(--ink); margin: 0 2px; }
 .val-score i { font-style: normal; }
 
-/* ---------- 选股榜单：价格与徽章 ---------- */
-.pk-price {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.pk-price.muted { color: var(--ink-3); font-size: 14px; }
-.pk-chg {
-  margin-top: 1px;
-  font-size: 11.5px;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-.pk-chg.up { color: var(--pos); }
-.pk-chg.down { color: var(--neg); }
-.pk-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 5px;
-}
-.pk-badge {
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.pk-badge.cheap { background: #eaf6f0; color: var(--pos); }
-.pk-badge.fair { background: #eef4f8; color: var(--accent); }
-.pk-badge.rich { background: #fdf1ef; color: var(--neg); }
-.pk-meta {
-  font-size: 11px;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
