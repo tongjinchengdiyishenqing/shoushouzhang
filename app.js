@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-roe1";
+  var BUILD_ID = "20261105-views1";
 
   var DEFAULTS = {
     wallets: [
@@ -2228,8 +2228,12 @@
           '<span class="hint">' + (hs.list.length ? hs.list.length + " 只 ›" : "还没有 ›") + "</span></div>" +
         '<div class="list-row" data-act="goPlan"><span>分红复投测算</span>' +
           '<span class="hint">按持仓算哪年能覆盖生活费 ›</span></div>' +
+        '<div class="list-row" data-act="goPickStrategy" data-v="dividend"><span>找吃分红的</span>' +
+          '<span class="hint">股息率够高 + 历史高位 + 分红没缩水 ›</span></div>' +
+        '<div class="list-row" data-act="goPickStrategy" data-v="repair"><span>找吃修复的</span>' +
+          '<span class="hint">PB 分位低 + ROE 没恶化 ›</span></div>' +
         '<div class="list-row" data-act="goPick"><span>选股榜单</span>' +
-          '<span class="hint">按股息质量挑股票 ›</span></div>' +
+          '<span class="hint">全市场筛选、自己配条件 ›</span></div>' +
         '<div class="list-row" data-act="goCompound"><span>复利计算器</span>' +
           '<span class="hint">算算每年投多少能滚到多少 ›</span></div>' +
         '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
@@ -2861,6 +2865,7 @@
     if (!ui.stock) {
       ui.stock = { code: "", data: null, divs: null, loading: false,
       quote: null, quoteAt: "", quoteErr: "", error: "", at: 0, sync: null, walletId: "",
+      bands: null, bandsCode: "", bandsLoading: false,   // 两套判据（估值分位 / 股息分位）
       kline: null, klineCode: "", klineLoading: false, klineErr: "", klineAt: 0 };   // 旧字段保留，避免老数据反序列化报错
     }
     return ui.stock;
@@ -2869,6 +2874,26 @@
   /* 个股页也要实时价。
      原来这里只显示评分表里的收盘价——用户点进来看"今天涨没涨"，
      看到的却是两天前的数字，等于这一页没有行情。 */
+  /* 个股的两套判据（PB/PE 分位 + 股息率分位）单独拉一次。
+     和评分接口解耦：评分挂了也要能看到"贵不贵、股息处在什么位置"。 */
+  function loadBands(code) {
+    var stb = stockState();
+    if (!code || stb.bandsCode === code) return;   // 同一只票只拉一次（失败也不重试，别刷接口）
+    stb.bandsCode = code;
+    stb.bandsLoading = true;
+    apiFetch("/bands/" + encodeURIComponent(code), {})
+      .then(function (r) {
+        if (stockState().bandsCode !== code) return;   // 用户已经切到别的票了
+        stb.bandsLoading = false;
+        stb.bands = r.ok && r.body ? r.body : null;
+        render();
+      })
+      .catch(function () {
+        stb.bandsLoading = false;
+        render();
+      });
+  }
+
   function loadStockQuote(code, force) {
     var stq = stockState();
     if (!code) return;
@@ -3776,6 +3801,7 @@
 
     if (!code) return head + '<div class="empty">没带股票代码</div>';
     if (!d && !st.loading && !st.error) setTimeout(function () { loadStockDetail(code); }, 0);
+    setTimeout(function () { loadBands(code); }, 0);
     setTimeout(function () { klMount(); }, 0);
 
     var hs = (db.holdings || []).filter(function (h) { return h.code === code; })[0];
@@ -3917,6 +3943,47 @@
       : pr < 1 ? "明显便宜" : pr < 1.5 ? "偏便宜" : pr < 2.5 ? "合理" : "偏贵");
     var vPremium = d.value_premium != null ? Number(d.value_premium) : null;
     var vTone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
+
+    /* 两拨人看两套数：一屏给两个结论，别让他们自己换算。
+       分位方向不同，标签里必须写清楚（PB 越低越便宜 / 股息率越高越便宜）。 */
+    var bd = st.bands || null;
+    var viewsCard = "";
+    if (bd) {
+      var rp = bd.repair || null;
+      var dv2 = bd.dividend || null;
+      function pctCell(v, unit) {
+        return v == null ? "—" : (Math.round(Number(v)) + "%");
+      }
+      var repRow = rp
+        ? '<div class="vw-row" data-act="goPickStrategy" data-v="repair">' +
+            '<div class="vw-k">吃修复</div>' +
+            '<div class="vw-v">PB ' + (rp.pb != null ? Number(rp.pb).toFixed(2) : "—") +
+              ' · 分位 ' + pctCell(rp.pb_pct) +
+              ' · ROE ' + (rp.roe != null ? Number(rp.roe).toFixed(1) + "%" : "—") + "</div>" +
+            '<div class="vw-tag ' + (/便宜|极低/.test(rp.pb_label || "") ? "cheap" : /偏贵|高位/.test(rp.pb_label || "") ? "rich" : "fair") + '">' +
+              esc(rp.pb_label || "—") + (rp.roe_trend ? " · " + esc(rp.roe_trend) : "") + "</div>" +
+          "</div>"
+        : "";
+      var divRow = dv2
+        ? '<div class="vw-row" data-act="goPickStrategy" data-v="dividend">' +
+            '<div class="vw-k">吃分红</div>' +
+            '<div class="vw-v">股息率 ' + (dv2.dy != null ? (Number(dv2.dy) * 100).toFixed(2) + "%" : "—") +
+              ' · 分位 ' + pctCell(dv2.dy_pct) +
+              ' · 覆盖 ' + (dv2.cover_pct != null ? Math.round(Number(dv2.cover_pct)) + "%" : "—") + "</div>" +
+            '<div class="vw-tag ' + (/可加仓/.test(dv2.signal || "") ? "cheap" : /别加|太低/.test(dv2.signal || "") ? "rich" : "fair") + '">' +
+              esc(dv2.signal || "—") + "</div>" +
+          "</div>"
+        : "";
+      if (repRow || divRow) {
+        viewsCard = '<div class="card ov-card">' +
+          '<div class="card-title">两种看法' +
+            '<span class="kl-cap">同一只票，两拨人看到的不一样</span></div>' +
+          repRow + divRow +
+          '<div class="sd-note">PB 分位越低越便宜，股息率分位越高越便宜；两套都是"相对自己历史"，' +
+            '不是和别的公司比。点一行进对应榜单。</div>' +
+        "</div>";
+      }
+    }
     var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
     body += '<div class="card ov-card">' +
       '<div class="card-title">估值' +
@@ -3943,6 +4010,9 @@
       '<div class="sd-note">便宜度 = 分红溢价 + 市赚率两把尺子合成（0–20，越高越便宜）。' +
         "股息评分只看分红质量，<b>满分不等于便宜</b>。</div>" +
     "</div>";
+
+    /* 两种看法单独拼，别塞进上面那串字符串里 —— 混在一起时多插一次就会渲染出两份 */
+    body += viewsCard;
 
 
     /* --- 分红历史 + 到账流水 --- */
@@ -4157,8 +4227,12 @@
         '<div class="list-row" data-act="goHoldings"><span>管理持仓</span><span class="hint">' + hs.list.length + " 只 ›</span></div>" +
       "</div>" +
       '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
+        '<div class="list-row" data-act="goPickStrategy" data-v="dividend"><span>找吃分红的</span>' +
+          '<span class="hint">股息率够高 + 历史高位 + 分红没缩水 ›</span></div>' +
+        '<div class="list-row" data-act="goPickStrategy" data-v="repair"><span>找吃修复的</span>' +
+          '<span class="hint">PB 分位低 + ROE 没恶化 ›</span></div>' +
         '<div class="list-row" data-act="goPick"><span>选股榜单</span>' +
-          '<span class="hint">按股息质量挑股票 ›</span></div>' +
+          '<span class="hint">全市场筛选、自己配条件 ›</span></div>' +
       "</div>" +
       '<div class="card ov-card"><div class="card-title">躺平测算</div>' +
         '<div class="list-row" data-act="goPlan"><span>分红复投测算</span>' +
@@ -7830,6 +7904,15 @@
     else if (act === "cpMode") { compoundState().mode = el.getAttribute("data-v") || "month"; render(); }
     else if (act === "pickReload") pickLoad();
     else if (act === "pickFilter") { var _pf = pickState(); _pf.filters = !_pf.filters; render(); }
+    else if (act === "goPickStrategy") {
+      /* 从投资页/个股页点进来，直接落到对应档位并重新拉一遍 */
+      var _gps = pickState();
+      _gps.strategy = el.getAttribute("data-v") || "dividend";
+      _gps.sort = _gps.strategy === "dividend" ? "dy" : "pb";
+      _gps.res = null;
+      location.hash = "#/pick";
+      pickLoad();
+    }
     else if (act === "pickStrategy") {
       /* 换的是"看哪拨人的问题"，排序也跟着换默认值：
          吃分红按股息率、吃修复按 PB 分位、综合按六维综合分。 */
