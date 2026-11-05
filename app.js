@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-valpick1";
+  var BUILD_ID = "20261105-notify2";
 
   var DEFAULTS = {
     wallets: [
@@ -493,8 +493,10 @@
       ui.syncing = false;
       ui.authUser = ""; ui.authPwd = ""; ui.authPanel = "";
       toast(mode === "register" ? "注册成功" : "登录成功");
-      // 登录后落到账本页，别停在配置页
-      if (location.hash !== "#/book") location.hash = "#/book";
+      // 登录后一般落到账本页，别停在配置页。
+      // 但从通知点进来（#/auto）时不能踢走：那条路是"有账等着确认"，
+      // 登录态刚好过期的话，登录完被丢回账本，用户就以为通知点了没用。
+      if (parseHash().view !== "auto" && location.hash !== "#/book") location.hash = "#/book";
       render();
       return afterAuthPull();
     }).catch(function (e) {
@@ -4032,6 +4034,13 @@
      页面就一直是进来之前的旧状态 —— 用户看到的是"点开什么都没有，得手动刷新"。 */
   window.__szRefreshAuto = function () {
     try {
+      /* 没登录时后端一律 401，拉也是白拉，还会在待确认页上飘一条"网络不通"。
+         登录完 render 会重进这个视图，那时候再拉。 */
+      if (!auth || !auth.token) {
+        if (parseHash().view !== "auto") { location.hash = "#/auto"; }
+        render();
+        return 1;
+      }
       if (parseHash().view !== "auto") { location.hash = "#/auto"; }
       var a = autoState();
       a.remote = null;          // 丢掉旧列表，别拿旧数据先占位
