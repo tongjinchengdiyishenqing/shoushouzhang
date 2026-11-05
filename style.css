@@ -3935,6 +3935,16 @@ html, body { overscroll-behavior-y: contain; }
 .vw-tag.fair { background: #eef4f8; color: var(--accent); }
 .vw-tag.rich { background: #fdf1ef; color: var(--neg); }
 
+/* 修复目标价：紧跟在"吃修复"那行下面，缩进对齐到数值列 */
+.vw-tip {
+  margin: -6px 18px 4px;
+  padding-left: 56px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ROE 趋势：修复档的关键信息——PB 低是打折，ROE 回升才说明资产还在赚钱 */
 .pk-trend {
   flex: 0 0 auto;
