@@ -4060,3 +4060,63 @@ html, body { overscroll-behavior-y: contain; }
 .val-score b { font-size: 18px; color: var(--ink); margin: 0 2px; }
 .val-score i { font-style: normal; }
 
+/* 分批建仓表：三档价 + 仓位，一眼看到"跌到哪补多少" */
+.bt-card .bt-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+}
+.bt-card .bt-row:first-of-type { border-top: 0; }
+.bt-card .bt-k {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.25;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bt-card .bt-k span {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+.bt-card .bt-p {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.bt-card .bt-pb {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.bt-card .bt-w {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #2f6df6);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* 越低越划算：二档、三档价格用强调色（.card-title 占掉 nth-of-type(1)） */
+.bt-card .bt-row:nth-of-type(3) .bt-p,
+.bt-card .bt-row:nth-of-type(4) .bt-p { color: var(--up, #2f6df6); }
+.bt-card .bt-row:nth-of-type(4) .bt-p { font-size: 19px; }
+.bt-card .bt-foot {
+  margin: 2px 18px 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
