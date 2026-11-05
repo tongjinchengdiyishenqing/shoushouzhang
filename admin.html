@@ -415,7 +415,7 @@
   }
   function ago(iso) {
     if (!iso) return "—";
-    var t = Date.parse(iso);
+    var t = Date.parse(iso.endsWith("Z") ? iso : iso + "Z");
     if (!isFinite(t)) return "—";
     var d = Date.now() - t;
     if (d < 0) d = 0;
@@ -595,7 +595,7 @@
     var now = Date.now();
     $("u_note").textContent = "共 " + items.length + " 人";
     body.innerHTML = items.map(function (u) {
-      var isNew = u.createdAt && (now - Date.parse(u.createdAt) < 86400000);
+      var isNew = u.createdAt && (now - Date.parse(u.createdAt.endsWith("Z") ? u.createdAt : u.createdAt + "Z") < 86400000);
       return "<tr>" +
         '<td class="id">' + u.id + "</td>" +
         '<td class="who">' + esc(u.username) + "</td>" +
