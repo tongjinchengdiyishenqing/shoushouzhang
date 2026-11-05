@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-invest1";
+  var BUILD_ID = "20261105-calc1";
 
   var DEFAULTS = {
     wallets: [
@@ -1978,6 +1978,182 @@
 
 
 
+  /* ================= 视图：复利计算器 =================
+     纯本地算，不联网：本金 + 每期追加 + 年化 + 年数 → 期末总额。
+     复利用「有效月利率」（(1+年化)^(1/12)-1），跟银行/基金 App 的口径一致，
+     不是简单地拿年化除以 12 —— 后者算出来会偏高一点点，用户对不上账就会怀疑。 */
+
+  function compoundState() {
+    if (!ui.compound) {
+      ui.compound = { principal: 100000, monthly: 2000, rate: 5, years: 20, mode: "month" };
+    }
+    return ui.compound;
+  }
+
+  /* 一次性算完：返回 { fv, invested, gain, multiple, curve, doublings } */
+  function compoundCalc(c) {
+    c = c || compoundState();
+    var P = Number(c.principal) || 0;
+    var M = Number(c.monthly) || 0;
+    var years = Math.max(0, Math.min(60, Number(c.years) || 0));
+    var annual = (Number(c.rate) || 0) / 100;
+    var monthlyMode = c.mode !== "year";
+
+    var curve = [];
+    var fv, invested;
+
+    if (monthlyMode) {
+      var r = annual > -1 ? Math.pow(1 + annual, 1 / 12) - 1 : 0;
+      var months = Math.round(years * 12);
+      fv = P;
+      invested = P;
+      for (var m = 1; m <= months; m++) {
+        fv = fv * (1 + r) + M;
+        invested += M;
+        if (m % 12 === 0) {
+          curve.push({ year: m / 12, invested: invested, total: fv });
+        }
+      }
+    } else {
+      var rr = annual;
+      fv = P;
+      invested = P;
+      for (var y = 1; y <= years; y++) {
+        fv = fv * (1 + rr) + M * 12;   // 年追加 = 月追加 × 12，年末一次性投入
+        invested += M * 12;
+        curve.push({ year: y, invested: invested, total: fv });
+      }
+    }
+    if (years === 0) { fv = P; invested = P; }
+
+    var doublings = 0;
+    if (annual > 0) doublings = Math.log(2) / Math.log(1 + annual);
+
+    return {
+      fv: fv,
+      invested: invested,
+      gain: fv - invested,
+      multiple: invested > 0 ? fv / invested : 0,
+      years: years,
+      curve: curve,
+      doublings: doublings,
+      monthlyMode: monthlyMode
+    };
+  }
+
+  /* 曲线：累计投入 vs 期末总额 */
+  function compoundSvg(res) {
+    var c = res.curve;
+    if (!c.length) return "";
+    var W = 340, H = 150, L = 6, R = 10, T = 12, B = 20;
+    var maxV = 0;
+    c.forEach(function (d) { if (d.total > maxV) maxV = d.total; if (d.invested > maxV) maxV = d.invested; });
+    if (!(maxV > 0)) return "";
+    maxV *= 1.06;
+    function X(i) { return L + (i / Math.max(1, c.length - 1)) * (W - L - R); }
+    function Y(v) { return T + (maxV - v) / maxV * (H - T - B); }
+    function path(key) {
+      return c.map(function (d, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(d[key]).toFixed(1); }).join(" ");
+    }
+    var out = [];
+    out.push('<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' + Y(0).toFixed(1) + '" stroke="#E4EFF5"/>');
+    out.push('<path d="' + path("invested") + '" fill="none" stroke="#9aa4ad" stroke-width="1.4" stroke-dasharray="4 3"/>');
+    out.push('<path d="' + path("total") + '" fill="none" stroke="#1E6E96" stroke-width="1.9"/>');
+    out.push('<text x="' + (W - R) + '" y="' + (Y(maxV) + 10).toFixed(1) + '" text-anchor="end" font-size="9" fill="#767680">' +
+      fmtMoneyShort(maxV * 100) + "</text>");
+    out.push('<text x="' + L + '" y="' + (H - 6) + '" font-size="9" fill="#767680">第 1 年</text>');
+    out.push('<text x="' + (W - R) + '" y="' + (H - 6) + '" text-anchor="end" font-size="9" fill="#767680">第 ' + c.length + " 年</text>");
+    return '<svg class="pl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>" +
+      '<div class="pl-legend">' +
+        '<span class="pl-lg"><i style="background:#9aa4ad"></i>累计投入</span>' +
+        '<span class="pl-lg"><i style="background:#1E6E96"></i>期末总额</span>' +
+      "</div>";
+  }
+
+  function viewCompound() {
+    var c = compoundState();
+    var res = compoundCalc(c);
+    var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>复利计算器</h1>' +
+      '<div class="icon-btn"></div></div>';
+
+    function chips(act, key, list, fmt) {
+      return list.map(function (v) {
+        return '<span class="hfee-q' + (Number(c[key]) === v ? " on" : "") +
+          '" data-act="' + act + '" data-k="' + key + '" data-v="' + v + '">' + fmt(v) + "</span>";
+      }).join("");
+    }
+
+    var form = '<div class="card ov-card">' +
+      '<div class="field-row"><label>初始本金</label>' +
+        '<input data-act="cpPrincipal" type="number" inputmode="decimal" value="' + esc(String(c.principal)) + '">' +
+      "</div>" +
+      '<div class="chips-scroll hfee-row">' +
+        chips("cpSet", "principal", [0, 10000, 50000, 100000], function (v) { return v ? (v / 10000) + "万" : "没有"; }) +
+      "</div>" +
+      '<div class="field-row"><label>每月追加</label>' +
+        '<input data-act="cpMonthly" type="number" inputmode="decimal" value="' + esc(String(c.monthly)) + '">' +
+      "</div>" +
+      '<div class="chips-scroll hfee-row">' +
+        chips("cpSet", "monthly", [0, 1000, 3000, 5000], function (v) { return v ? v + "元" : "不追加"; }) +
+      "</div>" +
+      '<div class="field-row"><label>年化收益</label>' +
+        '<input data-act="cpRate" type="number" inputmode="decimal" value="' + esc(String(c.rate)) + '">' +
+        '<span class="hint" style="margin-left:8px">%</span>' +
+      "</div>" +
+      '<div class="chips-scroll hfee-row">' +
+        chips("cpSet", "rate", [2, 3, 5, 8], function (v) { return v + "%"; }) +
+      "</div>" +
+      '<div class="field-row"><label>投多少年</label>' +
+        '<input data-act="cpYears" type="number" inputmode="numeric" value="' + esc(String(c.years)) + '">' +
+        '<span class="hint" style="margin-left:8px">年</span>' +
+      "</div>" +
+      '<div class="chips-scroll hfee-row">' +
+        chips("cpSet", "years", [5, 10, 20, 30], function (v) { return v + "年"; }) +
+      "</div>" +
+      '<div class="chips-scroll hfee-row">' +
+        '<span class="hfee-q' + (c.mode !== "year" ? " on" : "") + '" data-act="cpMode" data-v="month">按月复利</span>' +
+        '<span class="hfee-q' + (c.mode === "year" ? " on" : "") + '" data-act="cpMode" data-v="year">按年复利</span>' +
+      "</div>" +
+    "</div>";
+
+    var sum = '<div class="card ov-card">' +
+      '<div class="card-title">' + c.years + " 年后" + "</div>" +
+      '<div class="pl-big">期末 <b>¥' + money(res.fv * 100) + "</b></div>" +
+      '<div class="pl-grid">' +
+        '<div><i>累计投入</i><b>¥' + money(res.invested * 100) + "</b></div>" +
+        '<div><i>其中收益</i><b>¥' + money(res.gain * 100) + "</b></div>" +
+        '<div><i>变成几倍</i><b>' + res.multiple.toFixed(2) + " 倍</b></div>" +
+        '<div><i>翻倍需要</i><b>' + (res.doublings ? res.doublings.toFixed(1) + " 年" : "—") + "</b></div>" +
+      "</div>" +
+      '<div class="fine-inline">' +
+        (res.monthlyMode ? "按月复利：" : "按年复利：") +
+        "有效月利率 (1+年化)^(1/12)−1，每月末追加；" +
+        "「翻倍需要」= 72 法则的精确版 ln2 / ln(1+年化)。" +
+      "</div>" +
+    "</div>";
+
+    var chart = res.curve.length > 1
+      ? '<div class="card ov-card"><div class="card-title">钱怎么长起来的</div>' + compoundSvg(res) + "</div>"
+      : "";
+
+    var rows = res.curve.map(function (d) {
+      return '<div class="pl-row">' +
+        '<div class="pl-row-h"><b>第 ' + d.year + " 年</b>" +
+          '<span class="hint">' + fmtMoneyShort(d.total * 100) + "</span></div>" +
+        '<div class="pl-row-b">累计投入 ' + fmtMoneyShort(d.invested * 100) +
+          " · 收益 " + fmtMoneyShort((d.total - d.invested) * 100) + "</div>" +
+      "</div>";
+    }).join("");
+    var table = rows
+      ? '<div class="card ov-card"><div class="card-title">逐年</div>' +
+        '<div class="cmp-scroll">' + rows + "</div></div>"
+      : "";
+
+    return head + form + sum + chart + table +
+      '<div class="fine-inline" style="text-align:center;padding-bottom:26px">' +
+        "算的是数学，不是承诺：真实收益会上下起伏，还会被通胀吃掉一部分。</div>";
+  }
+
   /* ================= 视图：投资（钱生钱的家） =================
      把「持仓 / 分红复投测算 / 定投计划 / 选股」从账本视角里分出来：
      账本管"花了多少"，投资管"钱怎么生钱"。两件事混在一页，两边都看不清。 */
@@ -2033,6 +2209,8 @@
           '<span class="hint">按持仓算哪年能覆盖生活费 ›</span></div>' +
         '<div class="list-row" data-act="goPick"><span>选股榜单</span>' +
           '<span class="hint">按股息质量挑股票 ›</span></div>' +
+        '<div class="list-row" data-act="goCompound"><span>复利计算器</span>' +
+          '<span class="hint">算算每年投多少能滚到多少 ›</span></div>' +
         '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
           '<span class="hint">净资产 / 股息覆盖率 ›</span></div>' +
       "</div>";
@@ -5930,6 +6108,7 @@
   VIEW_PARENT.plan = "invest";           // 测算退回投资页
   VIEW_PARENT.autorules = "config";      // 规则退回设置
   VIEW_PARENT.pick = "invest";           // 选股退回投资页
+  VIEW_PARENT.compound = "invest";       // 复利计算器退回投资页
 
   function goBack() {
     var v = parseHash().view;
@@ -6015,6 +6194,7 @@
     else if (r.view === "autorules") body = viewAutoRules();
     else if (r.view === "pick") body = viewPick();
     else if (r.view === "invest") body = viewInvest();
+    else if (r.view === "compound") body = viewCompound();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -6046,7 +6226,7 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
-      : (r.view === "invest") ? "invest"
+      : (r.view === "invest" || r.view === "compound") ? "invest"
       : (r.view === "pick" || r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
          r.view === "overview" || r.view === "stock" || r.view === "plan") ? "assets"
       : (r.view === "wallets" || r.view === "tags" || r.view === "config" || r.view === "autorules") ? "config"
@@ -7375,6 +7555,15 @@
     }
     else if (act === "goAutoRules") { location.hash = "#/autorules"; }
     else if (act === "goPick") { location.hash = "#/pick"; pickLoad(); }
+    else if (act === "goCompound") { location.hash = "#/compound"; }
+    else if (act === "cpSet") {
+      var ck = el.getAttribute("data-k") || "";
+      var cv = Number(el.getAttribute("data-v")) || 0;
+      var cs = compoundState();
+      if (ck) cs[ck] = cv;
+      render();
+    }
+    else if (act === "cpMode") { compoundState().mode = el.getAttribute("data-v") || "month"; render(); }
     else if (act === "pickReload") pickLoad();
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
@@ -7649,6 +7838,10 @@
     else if (act === "planAnnual") { planState().annual = Number(el.value) || 0; planState().res = null; }
     else if (act === "planHorizon") { planState().horizon = Number(el.value) || 0; planState().res = null; }
     else if (act === "planCost") { planState().cost = Number(el.value) || 0; planState().res = null; }
+    else if (act === "cpPrincipal") { compoundState().principal = Number(el.value) || 0; }
+    else if (act === "cpMonthly") { compoundState().monthly = Number(el.value) || 0; }
+    else if (act === "cpRate") { compoundState().rate = Number(el.value) || 0; }
+    else if (act === "cpYears") { compoundState().years = Number(el.value) || 0; }
     else if (act === "wName") ui.wName = el.value;
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
