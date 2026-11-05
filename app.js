@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-fromlow1";
+  var BUILD_ID = "20261106-honest1";
 
   var DEFAULTS = {
     wallets: [
@@ -2455,13 +2455,16 @@
          银行负债率天然 90%+，用非银的负债门槛会把它全筛掉；
          非银不需要 36 个月那么久。混在一起只能取交集，两头都不对。 */
       var LINES = [
+        /* 胜率写"几个年份里有几年赚"，不写汇总胜率：
+           银行线的 85% 是被 2023-2024 入场样本撑的（2019 年入场只有 6.2%），
+           非银线年份等权 70.6%，才是能当常态看的数。 */
         { k: "", t: "全部破净", s: "PB<1 · ROE≥6<br>140 只达标" },
-        { k: "bank", t: "银行", s: "PB<0.7 · ROE≥6<br>胜率 85.5%" },
-        { k: "nonbank", t: "其他", s: "PB<0.8 + 质量门槛<br>胜率 77.3%" }
+        { k: "bank", t: "银行", s: "PB<0.7 · ROE≥6<br>7 年里 4 年赚" },
+        { k: "nonbank", t: "其他", s: "PB<0.8 + 质量门槛<br>8 年里 7 年赚" }
       ];
       gateHtml += '<div class="pk-panel-hd">' +
           '<span class="pk-panel-t">哪条线</span>' +
-          '<span class="kl-cap">门槛和回测胜率都不同，别混着看</span>' +
+          '<span class="kl-cap">门槛不同，稳不稳也不同，别混着看</span>' +
         "</div>" +
         '<div class="pk-lines">' +
         LINES.map(function (x) {
@@ -4118,9 +4121,10 @@
       btCard = '<div class="card ov-card bt-card"><div class="card-title">分批建仓' +
         '<span class="kl-cap">别一把梭，越跌越买</span></div>' +
         btRows +
-        '<div class="bt-foot">历史回测（2015-2026，7895 个"PB<1 且 ROE≥6"的样本点）：' +
-          '一次性全买胜率 65.5%、最深浮亏 -13.7%；按上面三档分批 71.5%、-9.7%。' +
-          '涨的那批也不吃亏，所以这是照做就行，不用猜底部。回测不代表未来。</div>' +
+        '<div class="bt-foot">历史回测（2015-2026，8012 个"PB<1 且 ROE≥6"的样本点，' +
+          '覆盖 8 个入场年份）：分批在每一年都比一把梭高 4~10 个百分点，' +
+          '年份等权后 56.6% → 64.8%，最深浮亏 -13.7% → -9.7%。' +
+          '分批不保证赚钱，是保证买贵了也能把成本摊下来。回测不代表未来。</div>' +
       "</div>";
     }
     var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
