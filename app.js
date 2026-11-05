@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261104-hold24";
+  var BUILD_ID = "20261105-plan1";
 
   var DEFAULTS = {
     wallets: [
@@ -1978,6 +1978,224 @@
 
 
 
+  /* ================= 视图：分红复投测算 =================
+     后端 /portfolio/simulate 已经是完整的三情景蒙特卡洛：给定每年投多少、投几年、
+     目标生活费，返回悲观/中性/乐观三条资产与分红曲线，以及"哪一年能覆盖"。
+     前端只负责收集参数 + 把结果画出来，不在浏览器里重算金融模型。 */
+
+  function planState() {
+    if (!ui.plan) {
+      ui.plan = {
+        annual: 24000,      // 每年定投
+        horizon: 10,        // 投几年
+        cost: 60000,        // 目标年生活费
+        infl: 0.02,         // 通胀
+        tax: 0.05,          // 红利税
+        scope: "",          // ""=用持仓；否则是单只代码
+        loading: false,
+        err: "",
+        res: null,
+        at: 0
+      };
+    }
+    return ui.plan;
+  }
+
+  /* 拿持仓当组合：按市值加权。没有持仓就没法算，提示用户先加。 */
+  function planItems() {
+    var p = planState();
+    if (p.scope) return [{ ts_code: p.scope, weight: 1.0 }];
+    var st = holdingStats();
+    var list = (st.list || []).filter(function (x) { return x.mv > 0; });
+    if (!list.length) return [];
+    var total = list.reduce(function (a, x) { return a + x.mv; }, 0) || 1;
+    return list.map(function (x) {
+      return { ts_code: x.code, weight: Math.round((x.mv / total) * 10000) / 10000 };
+    });
+  }
+
+  function runPlan() {
+    var p = planState();
+    var items = planItems();
+    if (!items.length) {
+      p.err = "先在持仓里加一只，再用持仓测算";
+      render();
+      return;
+    }
+    p.loading = true;
+    p.err = "";
+    render();
+    apiFetch("/portfolio/simulate", {
+      method: "POST",
+      body: JSON.stringify({
+        items: items,
+        total_annual_invest: Number(p.annual) || 24000,
+        horizon: Math.max(1, Math.min(60, Number(p.horizon) || 10)),
+        living_cost: Number(p.cost) || 0,
+        inflation: Number(p.infl) || 0,
+        dividend_tax: Number(p.tax) || 0,
+        simulations: 400
+      })
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
+        p.res = r.body;
+        p.loading = false;
+        p.at = Date.now();
+        render();
+      })
+      .catch(function (e) {
+        p.loading = false;
+        p.err = "测算失败" + (e && e.message ? "：" + e.message : "");
+        render();
+      });
+  }
+
+  /* 三情景曲线：横轴年数，纵轴年度分红；目标生活费一条虚线 */
+  function planChart(res) {
+    var base = res.scenarios && res.scenarios.base;
+    if (!base || !base.curve || !base.curve.length) return "";
+    var pts = [
+      { key: "pessimistic", color: "#c0453c", label: "悲观" },
+      { key: "base", color: "#1E6E96", label: "中性" },
+      { key: "optimistic", color: "#1e7a58", label: "乐观" }
+    ];
+    var W = 340, H = 150, L = 6, R = 8, T = 12, B = 22;
+    var maxV = 0, n = base.curve.length;
+    pts.forEach(function (q) {
+      var c = (res.scenarios[q.key] || {}).curve || [];
+      c.forEach(function (d) {
+        if (d.annual_dividend > maxV) maxV = d.annual_dividend;
+        if (d.target_cost > maxV) maxV = d.target_cost;
+      });
+    });
+    if (!(maxV > 0)) return "";
+    maxV *= 1.08;
+    function X(i) { return L + (i / Math.max(1, n - 1)) * (W - L - R); }
+    function Y(v) { return T + (maxV - v) / maxV * (H - T - B); }
+    var out = [];
+    out.push('<line x1="' + L + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - R) + '" y2="' +
+      Y(0).toFixed(1) + '" stroke="#E4EFF5"/>');
+    pts.forEach(function (q) {
+      var c = (res.scenarios[q.key] || {}).curve || [];
+      var d = c.map(function (it, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(it.annual_dividend).toFixed(1); }).join(" ");
+      if (d) out.push('<path d="' + d + '" fill="none" stroke="' + q.color + '" stroke-width="1.8"/>');
+    });
+    // 目标线
+    var tc = base.curve[0].target_cost;
+    if (tc > 0) {
+      out.push('<line x1="' + L + '" y1="' + Y(tc).toFixed(1) + '" x2="' + (W - R) + '" y2="' +
+        Y(tc).toFixed(1) + '" stroke="#0e0e10" stroke-width="1" stroke-dasharray="4 3" opacity="0.45"/>');
+      out.push('<text x="' + (W - R) + '" y="' + (Y(tc) - 3).toFixed(1) +
+        '" text-anchor="end" font-size="9" fill="#767680">生活费 ' + fmtMoneyShort(tc * 100) + "</text>");
+    }
+    out.push('<text x="' + L + '" y="' + (H - 6) + '" font-size="9" fill="#767680">第 1 年</text>');
+    out.push('<text x="' + (W - R) + '" y="' + (H - 6) + '" text-anchor="end" font-size="9" fill="#767680">第 ' + n + " 年</text>");
+
+    var legend = pts.map(function (q) {
+      return '<span class="pl-lg"><i style="background:' + q.color + '"></i>' + q.label + "</span>";
+    }).join("");
+
+    return '<svg class="pl-svg" viewBox="0 0 ' + W + " " + H + '">' + out.join("") + "</svg>" +
+      '<div class="pl-legend">' + legend + "</div>";
+  }
+
+  function viewPlan() {
+    var p = planState();
+    var items = planItems();
+    var res = p.res;
+
+    var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>分红复投测算</h1>' +
+      '<div class="icon-btn"></div></div>';
+
+    var scopeLine = p.scope
+      ? "只用这一只：" + esc(p.scope)
+      : (items.length ? "用当前持仓 " + items.length + " 只（按市值加权）" : "当前没有持仓");
+
+    var form =
+      '<div class="card ov-card">' +
+        '<div class="card-title">按什么测算</div>' +
+        '<div class="list-row"><span>组合</span><span class="hint">' + scopeLine + '</span></div>' +
+        (p.scope ? '<div class="list-row" data-act="planUseHoldings"><span>改回用全部持仓</span><span class="hint">›</span></div>' : "") +
+        '<div class="field-row"><label>每年投</label><input data-act="planAnnual" type="number" inputmode="decimal" value="' +
+          esc(String(p.annual)) + '"><span class="hint" style="margin-left:8px">元</span></div>' +
+        '<div class="chips-scroll hfee-row">' +
+          [12000, 24000, 36000, 60000].map(function (v) {
+            return '<span class="hfee-q' + (Number(p.annual) === v ? " on" : "") +
+              '" data-act="planSet" data-k="annual" data-v="' + v + '">' + (v / 10000) + "万</span>";
+          }).join("") +
+        "</div>" +
+        '<div class="field-row"><label>投几年</label><input data-act="planHorizon" type="number" inputmode="numeric" value="' +
+          esc(String(p.horizon)) + '"><span class="hint" style="margin-left:8px">年</span></div>' +
+        '<div class="chips-scroll hfee-row">' +
+          [5, 10, 15, 20].map(function (v) {
+            return '<span class="hfee-q' + (Number(p.horizon) === v ? " on" : "") +
+              '" data-act="planSet" data-k="horizon" data-v="' + v + '">' + v + "年</span>";
+          }).join("") +
+        "</div>" +
+        '<div class="field-row"><label>目标年生活费</label><input data-act="planCost" type="number" inputmode="decimal" value="' +
+          esc(String(p.cost)) + '"><span class="hint" style="margin-left:8px">元</span></div>' +
+        '<div class="fine-inline">按通胀 ' + (Number(p.infl) * 100).toFixed(0) + "% 逐年抬高目标；红利税 " +
+          (Number(p.tax) * 100).toFixed(0) + "%。</div>" +
+      "</div>" +
+      '<button class="btn-primary' + (items.length ? "" : " disabled") + '" data-act="planRun">开始测算</button>';
+
+    var body;
+    if (p.loading) {
+      body = '<div class="card ov-card"><div class="sd-note">正在跑 400 轮情景模拟…</div></div>';
+    } else if (p.err) {
+      body = '<div class="card ov-card"><div class="sd-note">' + esc(p.err) + "</div></div>";
+    } else if (!res) {
+      body = '<div class="card ov-card"><div class="sd-note">填好上面三项，点「开始测算」。' +
+        "结果给的是情景假设，不是承诺。</div></div>";
+    } else {
+      var b = res.scenarios && res.scenarios.base ? res.scenarios.base : {};
+      var pes = res.scenarios && res.scenarios.pessimistic ? res.scenarios.pessimistic : {};
+      var opt = res.scenarios && res.scenarios.optimistic ? res.scenarios.optimistic : {};
+      var hitYear = b.years_to_target;
+      var reach = Number(b.reach_ratio || 0) * 100;
+
+      var headline = hitYear
+        ? '<div class="pl-big">第 <b>' + hitYear + '</b> 年分红能覆盖生活费</div>'
+        : '<div class="pl-big">' + (res.meta ? res.meta.horizon : p.horizon) + ' 年后覆盖 <b>' +
+          (Number(b.end_coverage || 0) * 100).toFixed(0) + '%</b> 生活费</div>';
+
+      var sum =
+        '<div class="card ov-card pl-sum">' +
+          '<div class="card-title">结果</div>' +
+          headline +
+          '<div class="sd-note">中性情景达标概率 ' + reach.toFixed(0) + '%；悲观/乐观见下面的曲线。</div>' +
+          '<div class="pl-grid">' +
+            '<div><i>累计投入</i><b>¥' + money(res.meta ? res.meta.total_annual_invest * res.meta.horizon * 100 : 0) + "</b></div>" +
+            '<div><i>期末资产(中)</i><b>¥' + money((b.final_asset || 0) * 100) + "</b></div>" +
+            '<div><i>末年分红(中)</i><b>¥' + money((b.final_annual_dividend || 0) * 100) + "</b></div>" +
+            '<div><i>末年覆盖</i><b>' + (Number(b.end_coverage || 0) * 100).toFixed(0) + "%</b></div>" +
+            '<div><i>悲观末年分红</i><b>¥' + money((pes.final_annual_dividend || 0) * 100) + "</b></div>" +
+            '<div><i>乐观末年分红</i><b>¥' + money((opt.final_annual_dividend || 0) * 100) + "</b></div>" +
+          "</div>" +
+        "</div>" +
+        '<div class="card ov-card">' +
+          '<div class="card-title">年度分红曲线<span class="kl-cap">虚线是你的生活费目标</span></div>' +
+          planChart(res) +
+        "</div>";
+
+      var per = (res.per_stock || []).map(function (x) {
+        return '<div class="pl-row">' +
+          '<div class="pl-row-h"><b>' + esc(x.name || x.ts_code) + "</b>" +
+            '<span class="hint">' + (x.weight != null ? (x.weight * 100).toFixed(0) + "%" : "") + "</span></div>" +
+          '<div class="pl-row-b">每年 ¥' + fmtMoneyShort((x.annual_invest || 0) * 100) +
+            " · 期末 " + fmtShares(x.final_shares || 0) + " 股 / ¥" + fmtMoneyShort((x.final_asset || 0) * 100) +
+            " · 末年分红 ¥" + fmtMoneyShort((x.final_annual_dividend || 0) * 100) + "</div>" +
+        "</div>";
+      }).join("");
+
+      body = sum + '<div class="card ov-card"><div class="card-title">分项</div>' + per +
+        '<div class="fine-inline">' + esc(res.risk_notice || "情景模拟，不构成投资建议。") + "</div></div>";
+    }
+
+    return head + form + body;
+  }
+
   /* ================= 视图：个股详情（股息体检） =================
      数据全来自后端分析服务：/score/{code} 给股息评分，/dividends/{code} 给历史分红。
      两者都是只读接口，断网就显示「拉不到」，账本本身不受影响。
@@ -2916,6 +3134,7 @@
         : '<span class="sd-act" data-act="addThisStock" data-code="' + esc(code) +
           '" data-name="' + esc((d && d.name) || "") + '">加入持仓</span>') +
       '<span class="sd-act" data-act="goHoldings">全部持仓</span>' +
+      '<span class="sd-act" data-act="goPlan" data-code="' + esc(code) + '">用这只测算</span>' +
       "</div>";
 
     if (st.error && !d) {
@@ -3226,6 +3445,10 @@
         '<div class="list-row"><span>浮动盈亏</span><span class="hint" style="color:' + (hs.pnl >= 0 ? "var(--pos)" : "var(--neg)") + '">' +
           (hs.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(hs.pnl)) + "</span></div>" +
         '<div class="list-row" data-act="goHoldings"><span>管理持仓</span><span class="hint">' + hs.list.length + " 只 ›</span></div>" +
+      "</div>" +
+      '<div class="card ov-card"><div class="card-title">躺平测算</div>' +
+        '<div class="list-row" data-act="goPlan"><span>分红复投测算</span>' +
+          '<span class="hint">按持仓算哪年能覆盖生活费 ›</span></div>' +
       "</div>" +
       '<div class="card ov-card"><div class="card-title">口径</div>' +
         '<div class="list-row"><span>净资产</span><span class="hint">账户余额 + 持仓市值</span></div>' +
@@ -5302,6 +5525,7 @@
   VIEW_PARENT.stock = "holdings";
   VIEW_PARENT.holdingnew = "holdings";   // 添加持仓退回持仓页
   VIEW_PARENT.holdingedit = "holdings";  // 修改持仓退回持仓页
+  VIEW_PARENT.plan = "overview";         // 测算退回财务全景
 
   function goBack() {
     var v = parseHash().view;
@@ -5383,6 +5607,7 @@
     else if (r.view === "holdings") body = viewHoldings();
     else if (r.view === "holdingnew") body = viewHoldingNew();
     else if (r.view === "holdingedit") body = viewHoldingEdit();
+    else if (r.view === "plan") body = viewPlan();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -5415,7 +5640,7 @@
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
       : (r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
-         r.view === "overview" || r.view === "stock") ? "assets"
+         r.view === "overview" || r.view === "stock" || r.view === "plan") ? "assets"
       : (r.view === "wallets" || r.view === "tags" || r.view === "config") ? "config"
       : r.view === "search" ? "book"
       : r.view;
@@ -6644,6 +6869,23 @@
       location.hash = "#/holdingnew";
     }
     else if (act === "sdKlineReload") klLoad(el.getAttribute("data-code") || "", true);
+    else if (act === "goPlan") {
+      var pg = planState();
+      pg.scope = el.getAttribute("data-code") || "";
+      pg.res = null;
+      pg.err = "";
+      location.hash = "#/plan";
+    }
+    else if (act === "planUseHoldings") { planState().scope = ""; planState().res = null; render(); }
+    else if (act === "planSet") {
+      var pk = el.getAttribute("data-k"), pv = Number(el.getAttribute("data-v")) || 0;
+      var ps = planState();
+      if (pk === "annual") ps.annual = pv;
+      if (pk === "horizon") ps.horizon = pv;
+      ps.res = null;
+      render();
+    }
+    else if (act === "planRun") runPlan();
     else if (act === "klZoomIn" || act === "klZoomOut") {
       /* 按钮缩放：手机上万一手势被系统截走，这两个按钮一定点得动 */
       var wNow = KL.b - KL.a;
@@ -6924,6 +7166,9 @@
     else if (act === "hCost") { ui.hCost = el.value; paintHCalc(); }
     else if (act === "hFee") { ui.hFee = el.value; paintHCalc(); }
     else if (act === "hDay") ui.hDay = el.value;
+    else if (act === "planAnnual") { planState().annual = Number(el.value) || 0; planState().res = null; }
+    else if (act === "planHorizon") { planState().horizon = Number(el.value) || 0; planState().res = null; }
+    else if (act === "planCost") { planState().cost = Number(el.value) || 0; planState().res = null; }
     else if (act === "wName") ui.wName = el.value;
     else if (act === "wOpening") ui.wOpening = el.value;
     else if (act === "tagName") ui.tagName = el.value;
