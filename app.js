@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-plan1";
+  var BUILD_ID = "20261105-auto1";
 
   var DEFAULTS = {
     wallets: [
@@ -3457,6 +3457,27 @@
       "</div>"
     );
   }
+
+  /* 点通知进来 / 从后台切回来时，立刻重拉待确认。
+     坑在这里：App 已经停在 #/auto 时，location.hash 设成一样的值不会触发 hashchange，
+     页面就一直是进来之前的旧状态 —— 用户看到的是"点开什么都没有，得手动刷新"。 */
+  window.__szRefreshAuto = function () {
+    try {
+      if (parseHash().view !== "auto") { location.hash = "#/auto"; }
+      var a = autoState();
+      a.remote = null;          // 丢掉旧列表，别拿旧数据先占位
+      a.err = "";
+      loadPendingRaw();
+      render();
+      return 1;
+    } catch (e) { return 0; }
+  };
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    if (parseHash().view !== "auto") return;
+    window.__szRefreshAuto();
+  });
 
   /* ================= 视图：自动识别 ================= */
 
