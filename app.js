@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-pick4";
+  var BUILD_ID = "20261105-pick5";
 
   var DEFAULTS = {
     wallets: [
@@ -2414,17 +2414,17 @@
           '<div class="chips-scroll hfee-row">' +
             chipRow("pickMinYield", [0, 3, 4, 5], p.minYield, function (v) {
               return v ? "≥" + v + "%" : "不限";
-            }) + "</div>" +
+            }, true) + "</div>" +
           '<div class="pk-adv-t">股息评分门槛</div>' +
           '<div class="chips-scroll hfee-row">' +
             chipRow("pickMinScore", [0, 60, 70, 80], p.minScore, function (v) {
               return v ? "≥" + v + " 分" : "不限";
-            }) + "</div>" +
+            }, true) + "</div>" +
           '<div class="pk-adv-t">行业</div>' +
           '<div class="chips-scroll hfee-row">' +
-            '<span class="hfee-q' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
+            '<span class="hfee-q soft' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
             (p.inds || []).map(function (ind) {
-              return '<span class="hfee-q' + (p.industry === ind ? " on" : "") +
+              return '<span class="hfee-q soft' + (p.industry === ind ? " on" : "") +
                 '" data-act="pickIndustry" data-v="' + esc(ind) + '">' +
                 esc(String(ind).replace(/^[A-Z]\s+/, "").slice(0, 8)) + "</span>";
             }).join("") +
