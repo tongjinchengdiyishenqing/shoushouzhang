@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-basket1";
+  var BUILD_ID = "20261107-mkt1";
 
   var DEFAULTS = {
     wallets: [
@@ -2317,6 +2317,7 @@
         maxPb: 0,        // 吃修复：PB 分位上限（0=不限）
         minDyPct: 0,     // 吃分红：股息率分位下限（0=不限）
         line: "",        // 吃修复：""=全部破净 / bank=银行线 / nonbank=非银线
+        mkt: null,       // 市场温度（破净率），选股页顶部显示
       };
     }
     return ui.pick;
@@ -2360,9 +2361,23 @@
       .catch(function () {});
   }
 
+  /* 市场温度：只拉一次，一小时缓存由后端控制 */
+  function pickLoadMarket() {
+    var p = pickState();
+    if (p.mkt || p._mktLoading) return;
+    p._mktLoading = true;
+    apiFetch("/market/temperature", {})
+      .then(function (r) {
+        p._mktLoading = false;
+        if (r.ok && r.body) { p.mkt = r.body; render(); }
+      })
+      .catch(function () { p._mktLoading = false; });
+  }
+
   function pickLoad() {
     var p = pickState();
     pickLoadIndustries();
+    pickLoadMarket();
     p.loading = true;
     p.err = "";
     render();
@@ -2421,6 +2436,8 @@
 
   function viewPick() {
     var p = pickState();
+    /* 温度是市场状态，不依赖筛选条件，进页面就该看到 */
+    pickLoadMarket();
     /* 没白名单却停在 repair（比如从旧链接进来、或权限刚被收回）→ 退回综合 */
     if (p.strategy === "repair" && !(auth && auth.canRepair)) {
       p.strategy = "";
@@ -2506,7 +2523,39 @@
     if (p.industry) extraOn.push(String(p.industry).replace(/^[A-Z]\s+/, "").slice(0, 6));
     var filtersOpen = !!p.filters;
 
+    /* 市场温度条：先看温度再挑股票。
+       破净率 >=8% 是回测里唯一跨 8 个年份都稳的择时信号。 */
+    var mktHtml = "";
+    if (p.mkt && p.mkt.broken_pct != null) {
+      var mz = p.mkt.zone || "";
+      var mTone = mz === "便宜" ? "cheap" : mz === "偏贵" ? "rich" : "fair";
+      var hist = (p.mkt.series || []).slice(-24);
+      var maxR = 0.01;
+      hist.forEach(function (x) { maxR = Math.max(maxR, Number(x.ratio) || 0); });
+      var bars = hist.map(function (x) {
+        var r = Number(x.ratio) || 0;
+        var h = Math.max(3, Math.round(r / maxR * 26));
+        var hot = r >= 8 ? " hot" : "";
+        return '<i class="mkt-bar' + hot + '" style="height:' + h +
+          'px" title="' + esc(x.m + " " + r + "%") + '"></i>';
+      }).join("");
+      mktHtml = '<div class="card ov-card mkt-card">' +
+        '<div class="mkt-top">' +
+          '<div class="mkt-l">' +
+            '<div class="mkt-k">市场温度 · 破净率</div>' +
+            '<div class="mkt-big">' + Number(p.mkt.broken_pct).toFixed(1) + "%" +
+              '<em class="mkt-zone ' + mTone + '">' + esc(mz) + "</em></div>" +
+            '<div class="mkt-sub">比过去 72 个月里 ' +
+              Math.round(Number(p.mkt.percentile) || 0) + "% 的月份便宜</div>" +
+          "</div>" +
+          '<div class="mkt-spark">' + bars + "</div>" +
+        "</div>" +
+        '<div class="mkt-tip">' + esc(p.mkt.advice || "") + "</div>" +
+      "</div>";
+    }
+
     var form =
+      mktHtml +
       '<div class="pk-strategy">' +
         '<span class="pk-stg' + (p.strategy ? "" : " on") + '" data-act="pickStrategy" data-v="">综合</span>' +
         '<span class="pk-stg' + (p.strategy === "dividend" ? " on" : "") +
