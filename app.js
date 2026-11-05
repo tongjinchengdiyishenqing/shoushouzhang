@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-repairgate1";
+  var BUILD_ID = "20261106-batchlegs1";
 
   var DEFAULTS = {
     wallets: [
@@ -2292,13 +2292,13 @@
       { k: "yield", t: "股息率" }
     ],
     dividend: [
-      { k: "dy", t: "股息率" },
       { k: "dypct", t: "股息分位" },
+      { k: "dy", t: "股息率" },
       { k: "total2", t: "综合" },
       { k: "score", t: "股息评分" }
     ],
     repair: [
-      { k: "pb", t: "PB分位" },
+      { k: "pb", t: "PB最低" },
       { k: "pe", t: "PE分位" },
       { k: "dy", t: "股息率" },
       { k: "total2", t: "综合" }
@@ -2553,7 +2553,12 @@
           tone = /可加仓/.test(vLabel) ? "cheap"
             : /瑕疵|待核/.test(vLabel) ? "fair"
             : /别加|太低/.test(vLabel) ? "rich" : "fair";
+          /* 连续派息年数是吃息最该看的：回测里 10 年以上中断率 9.7%，新公司 27.8%。
+             覆盖率 >100% 标红（派的钱超过赚的钱），挪到第二行小字里。 */
+          var cy = x.consec_years != null ? Number(x.consec_years) : null;
           metaHtml =
+            '<span class="pk-cell' + (cy != null && cy >= 10 ? " hot" : "") +
+              '">连派<b>' + (cy != null ? cy + "年" : "—") + "</b></span>" +
             '<span class="pk-cell">股息率<b>' + dyPct + "</b></span>" +
             '<span class="pk-cell">分位<b>' + (dyQ != null ? dyQ + "%" : "—") + "</b></span>" +
             '<span class="pk-cell' + (x.cover_pct != null && Number(x.cover_pct) > 100 ? " warn" : "") +
@@ -2571,9 +2576,13 @@
           tone = /极低|^便宜/.test(vLabel) ? "cheap" : /偏贵|高位/.test(vLabel) ? "rich" : "fair";
           var roe = x.roe != null ? Number(x.roe).toFixed(1) + "%" : "—";
           var roeTrend = x.roe_trend || "";
+          /* 烟蒂看的是"赔率"：PB 回到 1.0 还能涨多少。
+             PB 分位（比自己历史）在回测里是负因子，挪到徽章里当参考，不再占主位。 */
+          var navUp = x.upside_to_nav != null ? Number(x.upside_to_nav) : null;
           metaHtml =
             '<span class="pk-cell">PB<b>' + pb + "</b></span>" +
-            '<span class="pk-cell">分位<b>' + (pbQ != null ? pbQ + "%" : "—") + "</b></span>" +
+            '<span class="pk-cell' + (navUp != null && navUp > 100 ? " hot" : "") +
+              '">距净资产<b>' + (navUp != null ? (navUp >= 0 ? "+" : "") + navUp.toFixed(0) + "%" : "—") + "</b></span>" +
             '<span class="pk-cell' + (x.roe != null && Number(x.roe) < 3 ? " warn" : "") +
               '">ROE<b>' + roe + "</b></span>";
           /* ROE 趋势是这一档的关键信息：PB 低是"打折"，ROE 回升才说明"资产还在赚钱"。
@@ -4032,7 +4041,38 @@
         "</div>";
       }
     }
+    /* 分批建仓表：回测证明一次性全买 65.5% 胜率，1/3 + 跌10%补 + 跌20%补 升到 71.5%，
+       最深浮亏从 -13.7% 收窄到 -9.7%，而涨的那批也不吃亏（83.8% -> 85.3%）。
+       用户原话「越便宜的时候买更多份额」——把这句话落成三档价。 */
+    var btCard = "";
+    if (d.close != null && Number(d.close) > 0) {
+      var c0 = Number(d.close);
+      var pb0 = Number(d.pb);
+      var legs = [
+        { k: "一档", r: 0, w: "1/3", note: "现价就建" },
+        { k: "二档", r: -0.10, w: "1/3", note: "跌 10% 补" },
+        { k: "三档", r: -0.20, w: "1/3", note: "跌 20% 补" }
+      ];
+      var btRows = legs.map(function (lg) {
+        var px = c0 * (1 + lg.r);
+        var pbv = Number.isFinite(pb0) && pb0 > 0 ? pb0 * (1 + lg.r) : null;
+        return '<div class="bt-row">' +
+          '<div class="bt-k">' + lg.k + "<span>" + lg.note + "</span></div>" +
+          '<div class="bt-p">¥' + px.toFixed(2) +
+            (pbv != null ? '<span class="bt-pb">PB ' + pbv.toFixed(2) + "</span>" : "") + "</div>" +
+          '<div class="bt-w">' + lg.w + "</div>" +
+        "</div>";
+      }).join("");
+      btCard = '<div class="card ov-card bt-card"><div class="card-title">分批建仓' +
+        '<span class="kl-cap">别一把梭，越跌越买</span></div>' +
+        btRows +
+        '<div class="bt-foot">历史回测（2015-2026，7895 个"PB<1 且 ROE≥6"的样本点）：' +
+          '一次性全买胜率 65.5%、最深浮亏 -13.7%；按上面三档分批 71.5%、-9.7%。' +
+          '涨的那批也不吃亏，所以这是照做就行，不用猜底部。回测不代表未来。</div>' +
+      "</div>";
+    }
     var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
+    if (btCard) body += btCard;
     body += '<div class="card ov-card">' +
       '<div class="card-title">估值' +
         '<span class="kl-cap">贵不贵看这里，不是看股息评分</span>' +
