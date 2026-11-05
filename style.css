@@ -4162,3 +4162,24 @@ html, body { overscroll-behavior-y: contain; }
 .pk-line.on b { color: #fff; }
 .pk-line.on i { color: rgba(255, 255, 255, 0.82); }
 .pk-line:active { transform: scale(0.98); }
+
+/* ---------- 修复档：距 24 月低点 ----------
+   买点位置的判据，不是装饰。回测里距低点超过 20% 之后，
+   12 个月内先跌 10% 以上的概率从 40% 升到 47~54%，24 月收益从 +22% 掉到 +1.5%。
+   10% 以内不显示，免得一屏全是标签。 */
+.pk-fromlow {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  background: #f1f3f5;
+  color: var(--ink-3);
+}
+.pk-fromlow.far {
+  background: #fdf2e6;
+  color: #a2621a;
+}
