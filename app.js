@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261107-dual1";
+  var BUILD_ID = "20261107-final1";
 
   var DEFAULTS = {
     wallets: [
@@ -2526,6 +2526,12 @@
     /* 市场温度条：先看温度再挑股票。
        破净率 >=8% 是回测里唯一跨 8 个年份都稳的择时信号。 */
     var mktHtml = "";
+    if (!p.mkt) {
+      mktHtml = '<div class="card ov-card mkt-card mkt-load">' +
+        '<div class="mkt-k">市场温度 · 破净率</div>' +
+        '<div class="mkt-wait">正在计算全市场破净率…</div>' +
+      "</div>";
+    }
     if (p.mkt && p.mkt.broken_pct != null) {
       var mz = p.mkt.zone || "";
       var mTone = mz === "便宜" ? "cheap" : mz === "偏贵" ? "rich" : "fair";
