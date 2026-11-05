@@ -3731,3 +3731,19 @@ html, body { overscroll-behavior-y: contain; }
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- 我的计划：本月进度条 ---------- */
+.plan-bar {
+  height: 6px;
+  margin: 2px 18px 10px;
+  border-radius: 999px;
+  background: #eef4f8;
+  overflow: hidden;
+}
+.plan-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
