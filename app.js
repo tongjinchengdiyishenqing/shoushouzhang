@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-tpsl1";
+  var BUILD_ID = "20261106-basket1";
 
   var DEFAULTS = {
     wallets: [
@@ -2682,7 +2682,9 @@
         '<div class="pk-list-hd">' +
           '<div class="pk-list-n"><b>共 ' + totalN + " 只</b>" +
             '<span>' + (p.quoteAt ? "价格 " + esc(String(p.quoteAt).replace("T", " ").slice(0, 16)) : "价格加载中…") + "</span></div>" +
-          '<span class="pk-list-note">股息率按评分日收盘</span>' +
+          '<span class="pk-list-note">' +
+            (p.strategy === "repair" ? "建议等权买 10 只以上" : "股息率按评分日收盘") +
+          "</span>" +
         "</div>" +
         (rows || '<div class="sd-note">这个门槛下没有股票，放宽一点再试。</div>') +
       "</div>" +
@@ -4138,7 +4140,8 @@
           '年份等权后 56.6% → 64.8%，最深浮亏 -13.7% → -9.7%。' +
           '分批不保证赚钱，是保证买贵了也能把成本摊下来。' +
           '止盈止损用 +30% / -30%：回测里更紧的止损反而更低胜率' +
-          '（-15% 止损胜率只剩 55%，正常波动就把你扫出去了）。回测不代表未来。</div>' +
+          '（-15% 止损胜率只剩 55%，正常波动就把你扫出去了）。' +
+          '这只是单笔胜率，等权买 10 只以上能到 90%。回测不代表未来。</div>' +
       "</div>";
     }
     var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
