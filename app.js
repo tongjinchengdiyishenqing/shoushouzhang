@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-sms1";
+  var BUILD_ID = "20261105-valpick1";
 
   var DEFAULTS = {
     wallets: [
@@ -2252,20 +2252,24 @@
   }
 
   /* ================= 视图：选股榜单 =================
-     后端 /screener 早就做好了（评分/股息率/每股分红/增速都能筛），前端一直没入口。
-     这里只做「按股息挑股票」这一件事：排序 + 两个阈值，点一行进个股页看细节。 */
+     一句话分工：**股息评分看质量，便宜度看贵不贵**。
+     评分（0-100）是连续/稳定/增长/覆盖四维加权，长期分红的公司很容易顶到 100，
+     所以「一排 100 分」不代表一堆便宜货——想找便宜的，看「便宜度」和「市赚率」。
+     列表里同时给实时价：价格是买点，评分是资质，两件事并排看才有用。 */
 
   var PICK_SORTS = [
-    { k: "score", t: "评分" },
-    { k: "yield", t: "股息率" },
-    { k: "dps", t: "每股分红" },
-    { k: "growth", t: "分红增速" }
+    { k: "total2", t: "综合" },
+    { k: "value", t: "便宜度" },
+    { k: "score", t: "股息评分" },
+    { k: "yield", t: "股息率" }
   ];
 
   function pickState() {
     if (!ui.pick) {
-      ui.pick = { sort: "score", minScore: 0, minYield: 0, industry: "", inds: null,
-                  loading: false, res: null, err: "", at: 0 };
+      ui.pick = {
+        sort: "total2", minScore: 0, minYield: 0, minValue: 0, industry: "",
+        inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0
+      };
     }
     return ui.pick;
   }
@@ -2284,12 +2288,28 @@
       })
       .catch(function () {
         p._indsLoading = false;
-        /* 限流/断网时自动再来一次：这一行空了，用户就没法按行业筛 */
         if (!p._indsRetried) {
           p._indsRetried = true;
           setTimeout(function () { pickLoadIndustries(); }, 3500);
         }
       });
+  }
+
+  /* 列表里的实时价：一次批量问 60 只，别一只一只请求（限流 30/分钟） */
+  function pickLoadQuotes() {
+    var p = pickState();
+    var items = (p.res && p.res.items) || [];
+    if (!items.length) return;
+    var codes = items.map(function (x) { return x.ts_code; }).join(",");
+    apiFetch("/quotes?codes=" + encodeURIComponent(codes), {})
+      .then(function (r) {
+        if (!r.ok || !r.body) return;
+        var q = r.body.quotes || {};
+        p.quotes = q;
+        p.quoteAt = r.body.as_of || "";
+        render();
+      })
+      .catch(function () {});
   }
 
   function pickLoad() {
@@ -2301,6 +2321,7 @@
     var q = ["sort=" + encodeURIComponent(p.sort), "order=desc", "limit=60"];
     if (Number(p.minScore) > 0) q.push("min_score=" + Number(p.minScore));
     if (Number(p.minYield) > 0) q.push("min_yield=" + Number(p.minYield));
+    if (Number(p.minValue) > 0) q.push("min_value=" + Number(p.minValue));
     if (p.industry) q.push("industry=" + encodeURIComponent(p.industry));
     apiFetch("/screener?" + q.join("&"), {})
       .then(function (r) {
@@ -2309,6 +2330,7 @@
         p.loading = false;
         p.at = Date.now();
         render();
+        pickLoadQuotes();     // 列表先出，价格随后补上
       })
       .catch(function (e) {
         p.loading = false;
@@ -2317,43 +2339,65 @@
       });
   }
 
+  function pickValueLabel(v, prem) {
+    if (prem != null) {
+      var x = Number(prem);
+      if (x >= 1.30) return "明显便宜";
+      if (x >= 1.05) return "偏便宜";
+      if (x >= 0.85) return "合理";
+      if (x >= 0.70) return "偏贵";
+      return "明显偏贵";
+    }
+    if (v == null) return "缺数据";
+    var s = Number(v);
+    return s >= 16 ? "明显便宜" : s >= 12 ? "偏便宜" : s >= 8 ? "合理" : s >= 4 ? "偏贵" : "明显偏贵";
+  }
+
   function viewPick() {
     var p = pickState();
     var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>选股榜单</h1>' +
       '<div class="icon-btn"></div></div>';
+
+    function chipRow(act, list, cur, fmt) {
+      return list.map(function (v) {
+        var on = String(cur) === String(v) ? " on" : "";
+        return '<span class="hfee-q' + on + '" data-act="' + act + '" data-v="' + v + '">' + fmt(v) + "</span>";
+      }).join("");
+    }
 
     var sortChips = PICK_SORTS.map(function (x) {
       return '<span class="hfee-q' + (p.sort === x.k ? " on" : "") +
         '" data-act="pickSort" data-v="' + x.k + '">' + x.t + "</span>";
     }).join("");
 
-    var scoreChips = [0, 60, 70, 80].map(function (v) {
-      return '<span class="hfee-q' + (Number(p.minScore) === v ? " on" : "") +
-        '" data-act="pickMinScore" data-v="' + v + '">' +
-        (v ? "≥" + v + " 分" : "不限评分") + "</span>";
-    }).join("");
-
-    var yieldChips = [0, 3, 4, 5].map(function (v) {
-      return '<span class="hfee-q' + (Number(p.minYield) === v ? " on" : "") +
-        '" data-act="pickMinYield" data-v="' + v + '">' +
-        (v ? "≥" + v + "%" : "不限股息") + "</span>";
-    }).join("");
-
-    var form = '<div class="card ov-card">' +
-      '<div class="card-title">怎么排</div>' +
-      '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
-      '<div class="card-title" style="padding-top:12px">评分门槛</div>' +
-      '<div class="chips-scroll hfee-row">' + scoreChips + "</div>" +
-      '<div class="card-title" style="padding-top:12px">股息率门槛</div>' +
-      '<div class="chips-scroll hfee-row">' + yieldChips + "</div>" +
-      '<div class="card-title" style="padding-top:12px">行业</div>' +
-      '<div class="chips-scroll hfee-row">' +
-        '<span class="hfee-q' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
-        (p.inds || []).map(function (ind) {
-          return '<span class="hfee-q' + (p.industry === ind ? " on" : "") +
-            '" data-act="pickIndustry" data-v="' + esc(ind) + '">' + esc(String(ind).slice(0, 8)) + "</span>";
-        }).join("") +
-      "</div>" +
+    var form =
+      '<div class="card ov-card">' +
+        '<div class="card-title">怎么排' +
+          '<span class="kl-cap">股息评分＝分红质量，满分不等于便宜</span></div>' +
+        '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
+        '<div class="card-title" style="padding-top:12px">便宜度（越高越便宜）</div>' +
+        '<div class="chips-scroll hfee-row">' +
+          chipRow("pickMinValue", [0, 12, 16, 18], p.minValue, function (v) {
+            return v ? "≥" + v + " 分" : "不限";
+          }) + "</div>" +
+        '<div class="card-title" style="padding-top:12px">股息率门槛</div>' +
+        '<div class="chips-scroll hfee-row">' +
+          chipRow("pickMinYield", [0, 3, 4, 5], p.minYield, function (v) {
+            return v ? "≥" + v + "%" : "不限";
+          }) + "</div>" +
+        '<div class="card-title" style="padding-top:12px">股息评分门槛</div>' +
+        '<div class="chips-scroll hfee-row">' +
+          chipRow("pickMinScore", [0, 60, 70, 80], p.minScore, function (v) {
+            return v ? "≥" + v + " 分" : "不限";
+          }) + "</div>" +
+        '<div class="card-title" style="padding-top:12px">行业</div>' +
+        '<div class="chips-scroll hfee-row">' +
+          '<span class="hfee-q' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
+          (p.inds || []).map(function (ind) {
+            return '<span class="hfee-q' + (p.industry === ind ? " on" : "") +
+              '" data-act="pickIndustry" data-v="' + esc(ind) + '">' + esc(String(ind).slice(0, 8)) + "</span>";
+          }).join("") +
+        "</div>" +
       "</div>";
 
     var body;
@@ -2363,37 +2407,55 @@
       body = '<div class="card ov-card"><div class="sd-note">' + esc(p.err) +
         ' · <span class="kl-retry" data-act="pickReload">重试</span></div></div>';
     } else if (!p.res) {
-      body = '<div class="card ov-card"><div class="sd-note">选好排序和门槛，点下面开始筛。</div></div>' +
+      body = '<div class="card ov-card"><div class="sd-note">选好排序和门槛，点下面开始筛。' +
+        "<br>想找便宜又发钱的：便宜度 ≥12、股息率 ≥4%，再按综合排。</div></div>" +
         '<button class="btn-primary" data-act="pickReload">开始筛选</button>';
     } else {
       var items = p.res.items || [];
       var rows = items.map(function (x) {
+        var q = (p.quotes || {})[x.ts_code] || null;
+        var price = q && q.price != null ? Number(q.price) : null;
+        var chg = q && q.pct_chg != null ? Number(q.pct_chg) : null;
         var y = x.current_yield != null ? (Number(x.current_yield) * 100).toFixed(2) + "%" : "—";
-        var sc = x.composite_score != null ? Number(x.composite_score).toFixed(0) : "—";
-        var dps = x.predicted_d0 != null ? "¥" + Number(x.predicted_d0).toFixed(2) : "—";
-        var g = x.predicted_g != null ? (Number(x.predicted_g) * 100).toFixed(1) + "%" : "—";
+        var vLabel = x.value_label || pickValueLabel(x.value_score, x.value_premium);
+        var tone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
+        var vScore = x.value_score != null ? Number(x.value_score).toFixed(0) : "—";
+        var pr = x.value_pr != null ? Number(x.value_pr).toFixed(2) : "—";
+        var t2 = x.total_score2 != null ? Number(x.total_score2).toFixed(0) : "—";
         return '<div class="pk-row" data-act="openStock" data-code="' + esc(x.ts_code) + '">' +
           '<div class="pk-l">' +
             '<div class="pk-nm">' + esc(x.name || x.ts_code) + "</div>" +
             '<div class="pk-sub">' + esc(x.ts_code) +
-              (x.industry ? " · " + esc(String(x.industry).slice(0, 10)) : "") + "</div>" +
+              (x.industry ? " · " + esc(String(x.industry).slice(0, 8)) : "") + "</div>" +
+            '<div class="pk-tags">' +
+              '<em class="pk-badge ' + tone + '">' + esc(vLabel) + "</em>" +
+              '<span class="pk-meta">便宜度 ' + vScore + " · 市赚率 " + pr +
+                " · 股息 " + y + " · 综合 " + t2 + "</span>" +
+            "</div>" +
           "</div>" +
           '<div class="pk-r">' +
-            '<div class="pk-yield">' + y + "</div>" +
-            '<div class="pk-score">评分 ' + sc + " · 分红 " + dps + "（" + g + "）</div>" +
+            (price != null
+              ? '<div class="pk-price">' + price.toFixed(2) + "</div>" +
+                (chg != null
+                  ? '<div class="pk-chg ' + (chg > 0 ? "up" : chg < 0 ? "down" : "") + '">' +
+                    (chg > 0 ? "+" : "") + chg.toFixed(2) + "%</div>"
+                  : "")
+              : '<div class="pk-price muted">—</div><div class="pk-chg">价</div>') +
           "</div>" +
         "</div>";
       }).join("");
 
       body = '<div class="card ov-card">' +
         '<div class="card-title">共 ' + (p.res.total != null ? p.res.total : items.length) + " 只符合" +
-          '<span class="kl-cap">按最近评分日，不是实时行情</span></div>' +
+          '<span class="kl-cap">' + (p.quoteAt ? "价格 " + esc(String(p.quoteAt).replace("T", " ").slice(0, 16)) : "价格加载中…") +
+          " · 股息率按评分日收盘</span></div>" +
         (rows || '<div class="sd-note">这个门槛下没有股票，放宽一点再试。</div>') +
       "</div>" +
       '<button class="btn-ghost sd-del-hold" data-act="pickReload" ' +
-        'style="border-color:#e4eff5;background:#fafafb;color:#4a4a54">重新筛</button>' +
+        'style="border-color:#e4eff5;background:#fafafb;color:#4a4a54">重新筛 / 刷新价格</button>' +
       '<div class="fine-inline" style="text-align:center;padding-bottom:26px">' +
-        "评分是股息质量的综合分，不构成投资建议。</div>";
+        "便宜度来自「分红溢价 + 市赚率」，是估值口径；股息评分是分红质量口径，两者互不替代。" +
+        "不构成投资建议。</div>";
     }
 
     return head + form + body;
@@ -3701,22 +3763,42 @@
       "</div>";
     }
 
-    /* --- 估值：PE / PB / ROE / 市赚率 --- */
+    /* --- 估值：便宜度（醒目） + PE / PB / ROE / 市赚率 --- */
     var pe = Number(d.pe), pb = Number(d.pb);
     var roe = pe > 0 && pb > 0 ? (pb / pe) * 100 : null;   // ROE ≈ PB / PE
-    var pr = roe && roe > 0 ? pe / roe : null;            // 市赚率 = PE ÷ ROE%
-    var prText = pr == null ? "—"
-      : pr < 1 ? "便宜（<1）" : pr < 2 ? "合理（1–2）" : "偏贵（>2）";
+    var pr = d.value_pr != null ? Number(d.value_pr) : (roe && roe > 0 ? pe / roe : null);
+    var vScore = d.value_score != null ? Number(d.value_score) : null;
+    var vLabel = d.value_label || (pr == null ? "缺数据"
+      : pr < 1 ? "明显便宜" : pr < 1.5 ? "偏便宜" : pr < 2.5 ? "合理" : "偏贵");
+    var vPremium = d.value_premium != null ? Number(d.value_premium) : null;
+    var vTone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
+    var vIcon = /明显便宜/.test(vLabel) ? "◎" : /偏便宜/.test(vLabel) ? "◍" : /合理/.test(vLabel) ? "◐" : "◔";
     body += '<div class="card ov-card">' +
-      '<div class="card-title">估值</div>' +
+      '<div class="card-title">估值' +
+        '<span class="kl-cap">贵不贵看这里，不是看股息评分</span>' +
+      "</div>" +
+      '<div class="val-hero ' + vTone + '">' +
+        '<div class="val-badge">' + vIcon + " " + esc(vLabel) + "</div>" +
+        (vScore != null
+          ? '<div class="val-score">便宜度 <b>' + vScore.toFixed(0) + "</b><i>/20</i></div>"
+          : "") +
+      "</div>" +
       '<div class="sd-grid">' +
         '<div><i>PE</i><b>' + (isFinite(pe) && pe > 0 ? pe.toFixed(1) : "—") + "</b></div>" +
         '<div><i>PB</i><b>' + (isFinite(pb) && pb > 0 ? pb.toFixed(2) : "—") + "</b></div>" +
         '<div><i>ROE</i><b>' + (roe != null ? roe.toFixed(1) + "%" : "—") + "</b></div>" +
         '<div><i>市赚率</i><b>' + (pr != null ? pr.toFixed(2) : "—") + "</b></div>" +
       "</div>" +
-      '<div class="sd-note">市赚率 = PE ÷ ROE%，越低越便宜 —— 当前 ' + prText + "</div>" +
+      '<div class="sd-note">' +
+        "市赚率 = PE ÷ ROE%，低于 1 就是「赚得比价格多」。" +
+        (vPremium != null
+          ? " 分红溢价 " + vPremium.toFixed(2) + "（今年每股分红 ÷ 近 3 年均值，>1 说明分红比过去厚而价格没跟上）。"
+          : "") +
+      "</div>" +
+      '<div class="sd-note">便宜度 = 分红溢价 + 市赚率两把尺子合成（0–20，越高越便宜）。' +
+        "股息评分只看分红质量，<b>满分不等于便宜</b>。</div>" +
     "</div>";
+
 
     /* --- 分红历史 + 到账流水 --- */
     var rows2 = divRowsFor(code);
@@ -7598,6 +7680,7 @@
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickMinValue") { pickState().minValue = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickIndustry") { pickState().industry = el.getAttribute("data-v") || ""; pickLoad(); }
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
