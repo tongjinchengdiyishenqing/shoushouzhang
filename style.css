@@ -3693,8 +3693,43 @@ html, body { overscroll-behavior-y: contain; }
 
 /* ---------- 选股榜单 ---------- */
 
-/* 筛选面板：排序和便宜度是"必看"，股息率/评分/行业收进折叠区 */
-.pk-panel { padding-bottom: 6px; }
+/* 筛选面板：默认收成一条"条件摘要"，点「调整」才展开 —— 一屏 844px，
+   筛选卡片全铺开要吃掉 300px，榜单直接被挤到第二屏，进来先看到的应该是股票。 */
+.pk-panel { padding: 2px 0 4px; }
+.pk-sum {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 13px 18px;
+  cursor: pointer;
+  min-width: 0;
+}
+.pk-sum:active { background: var(--paper-2); }
+.pk-sum-k { font-size: 11.5px; color: var(--ink-3); }
+.pk-sum-v { font-size: 13px; font-weight: 650; color: var(--ink); margin-right: 6px; }
+.pk-sum-x {
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.pk-sum-more {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.pk-filters {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.24s ease;
+}
+.pk-filters.open { max-height: 780px; }
 .pk-panel-hd {
   display: flex;
   align-items: baseline;
@@ -3776,7 +3811,7 @@ html, body { overscroll-behavior-y: contain; }
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 30px;
+  height: 36px;
   border-radius: 999px;
   background: #dfe7ec;
 }
