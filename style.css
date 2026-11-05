@@ -3754,3 +3754,68 @@ html, body { overscroll-behavior-y: contain; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ---------- 个股页：便宜度徽章 ---------- */
+.val-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 18px 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+}
+.val-hero.cheap { background: #eaf6f0; }
+.val-hero.fair { background: #eef4f8; }
+.val-hero.rich { background: #fdf1ef; }
+.val-badge {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.val-hero.cheap .val-badge { color: var(--pos); }
+.val-hero.fair .val-badge { color: var(--accent); }
+.val-hero.rich .val-badge { color: var(--neg); }
+.val-score { font-size: 12px; color: var(--ink-3); }
+.val-score b { font-size: 18px; color: var(--ink); margin: 0 2px; }
+.val-score i { font-style: normal; }
+
+/* ---------- 选股榜单：价格与徽章 ---------- */
+.pk-price {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.pk-price.muted { color: var(--ink-3); font-size: 14px; }
+.pk-chg {
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.pk-chg.up { color: var(--pos); }
+.pk-chg.down { color: var(--neg); }
+.pk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+.pk-badge {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pk-badge.cheap { background: #eaf6f0; color: var(--pos); }
+.pk-badge.fair { background: #eef4f8; color: var(--accent); }
+.pk-badge.rich { background: #fdf1ef; color: var(--neg); }
+.pk-meta {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
