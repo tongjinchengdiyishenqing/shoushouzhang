@@ -1,7 +1,7 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
-  "apk": "changliu-collector-1.4.apk",
+  "versionCode": 6,
+  "versionName": "1.5",
+  "apk": "changliu-collector-1.5.apk",
   "at": "2026-11-05",
-  "notes": "自动记账提速：付完 0.5 秒出结果；去掉文字/截图两条通道重复记同一笔；截图前等待 0.6s→0.18s；同屏冷却 10s→2.2s。"
+  "notes": "支付页只停留一秒也抓得到（进入支付App后每0.55秒主动截一张，不再等系统事件）；点通知进来立刻刷新待确认，不用手动下拉。"
 }
