@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-fix1";
+  var BUILD_ID = "20261105-back1";
 
   var DEFAULTS = {
     wallets: [
@@ -6113,15 +6113,39 @@
   VIEW_PARENT.autorules = "config";      // 规则退回设置
   VIEW_PARENT.pick = "invest";           // 选股退回投资页
   VIEW_PARENT.compound = "invest";       // 复利计算器退回投资页
+  VIEW_PARENT.stats = "assets";          // 老链接 #/stats
+  VIEW_PARENT.entry = "book";            // 记一笔退回账本
+
+  /* 记「这一页是从哪页进来的」：返回时优先回那一页。
+     典型场景：从「选股榜单」点进个股，返回该回榜单；从「持仓」点进同一只个股，返回该回持仓。
+     一页只存一条（最后一次来源），刷新后自然失效，退回下面声明的上级。 */
+  var _navFrom = {};
+  var _navLast = "";
+
+  function noteNav(view) {
+    if (!view) return;
+    if (view !== _navLast) {
+      if (_navLast) _navFrom[view] = _navLast;
+      _navLast = view;
+    }
+  }
 
   function goBack() {
     var v = parseHash().view;
+    /* 记账页要先清表单，否则下次进来还是上次那笔 */
     if (v === "entry") {
       resetEntryForm();
       location.hash = "#/" + (VIEW_PARENT.entry || "book");
       return;
     }
-    location.hash = "#/" + (VIEW_PARENT[v] || "book");
+    /* 设置页的二级页（账号/备份/关于）都是 #/config?p=xxx，返回就是设置主页 */
+    if (v === "config") { location.hash = "#/config"; return; }
+
+    var from = _navFrom[v];
+    var parent = VIEW_PARENT[v] || "book";
+    /* 来源页就是自己（比如同页刷新）就别用它 */
+    if (from && from !== v) { location.hash = "#/" + from; return; }
+    location.hash = "#/" + parent;
   }
 
   /* 上一次渲染的路由标识，用来判断是「换页」还是「同页重绘」 */
@@ -6250,6 +6274,7 @@
 
     app.className = "phone" + (isEntry ? " entry-page" : "");
     // 只有「换页」才播放入场动画；同页重绘（切分类/切账户）不重放，避免闪屏
+    noteNav(r.view);
     var routeKey = r.view + (r.params.id || "");
     var isRouteChange = routeKey !== lastRoute;
     lastRoute = routeKey;
@@ -7609,7 +7634,7 @@
       loadPendingRaw();
       location.hash = "#/auto";
     }
-    else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
+    else if (act === "autoBack") { autoState().parsed = false; goBack(); }
     else if (act === "autoRemoteCommit") autoRemoteCommit();
     else if (act === "autoRemoteIgnoreAll") autoRemoteIgnoreAll();
     else if (act === "dropAutoRule") {
