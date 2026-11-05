@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-pick3";
+  var BUILD_ID = "20261105-pick4";
 
   var DEFAULTS = {
     wallets: [
@@ -2361,10 +2361,13 @@
     var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>选股榜单</h1>' +
       '<div class="icon-btn"></div></div>';
 
-    function chipRow(act, list, cur, fmt) {
+    /* soft=true 的那组用蓝色描边，不用实心黑：
+       排序和门槛是两件事，视觉上不能长得一样，否则用户会以为只能选一个 */
+    function chipRow(act, list, cur, fmt, soft) {
       return list.map(function (v) {
         var on = String(cur) === String(v) ? " on" : "";
-        return '<span class="hfee-q' + on + '" data-act="' + act + '" data-v="' + v + '">' + fmt(v) + "</span>";
+        return '<span class="hfee-q' + (soft ? " soft" : "") + on +
+          '" data-act="' + act + '" data-v="' + v + '">' + fmt(v) + "</span>";
       }).join("");
     }
 
@@ -2400,13 +2403,13 @@
           "</div>" +
           '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
           '<div class="pk-panel-hd">' +
-            '<span class="pk-panel-t">便宜度 ≥</span>' +
-            '<span class="kl-cap">越高越便宜，和评分是两回事</span>' +
+            '<span class="pk-panel-t">只看便宜度 ≥</span>' +
+            '<span class="kl-cap">满分 20，和股息评分是两个刻度</span>' +
           "</div>" +
           '<div class="chips-scroll hfee-row">' +
             chipRow("pickMinValue", [0, 12, 16, 18], p.minValue, function (v) {
               return v ? "≥" + v + " 分" : "不限";
-            }) + "</div>" +
+            }, true) + "</div>" +
           '<div class="pk-adv-t">股息率门槛</div>' +
           '<div class="chips-scroll hfee-row">' +
             chipRow("pickMinYield", [0, 3, 4, 5], p.minYield, function (v) {
@@ -7730,7 +7733,15 @@
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
-    else if (act === "pickMinValue") { pickState().minValue = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickMinValue") {
+      /* 设了便宜度门槛就顺手把排序切到「便宜度」：
+         筛出便宜货却还按"综合"（含估值权重）排，用户会觉得两边在打架。
+         他之后仍可以自己改回其它排序，这里只在"综合"时联动。 */
+      var _pv = pickState();
+      _pv.minValue = Number(el.getAttribute("data-v")) || 0;
+      if (_pv.minValue > 0 && _pv.sort === "total2") _pv.sort = "value";
+      pickLoad();
+    }
     else if (act === "pickIndustry") { pickState().industry = el.getAttribute("data-v") || ""; pickLoad(); }
     else if (act === "toggleMenu") { location.hash = "#/config"; }
     else if (act === "setGo") { location.hash = "#/config?p=" + encodeURIComponent(el.getAttribute("data-p") || ""); }
