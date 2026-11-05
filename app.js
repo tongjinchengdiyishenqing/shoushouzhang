@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-plan2";
+  var BUILD_ID = "20261105-invest1";
 
   var DEFAULTS = {
     wallets: [
@@ -778,6 +778,7 @@
   /* 底栏用实心图标（钱往的底栏是实心剪影，线稿在小尺寸下发虚） */
   var SOLID = {
     nav_book: '<path fill-rule="evenodd" d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2.2 4.6a1 1 0 1 0 0 2h5.6a1 1 0 1 0 0-2H9.2Zm0 4a1 1 0 1 0 0 2h3.6a1 1 0 1 0 0-2H9.2Z"/>',
+    nav_fund: '<path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/><path d="M3 21h18"/>',
     nav_stats: '<path d="M3.2 12.6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 19v-5.2a1.2 1.2 0 0 1 1.2-1.2Zm6.9-6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2h-3.4A1.2 1.2 0 0 1 8.9 19V7.8a1.2 1.2 0 0 1 1.2-1.2Zm6.9-3.4h3.8A1.2 1.2 0 0 1 22 4.4V19a1.2 1.2 0 0 1-1.2 1.2h-3.8A1.2 1.2 0 0 1 15.8 19V4.4a1.2 1.2 0 0 1 1.2-1.2Z"/>',
     nav_assets: '<path fill-rule="evenodd" d="M6.4 4h11.2A4.4 4.4 0 0 1 22 8.4v7.2a4.4 4.4 0 0 1-4.4 4.4H6.4A4.4 4.4 0 0 1 2 15.6V8.4A4.4 4.4 0 0 1 6.4 4Zm11 5.1a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/>',
     nav_config: '<path d="M3.4 6.2h8.2a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm13.9 0h3.3a1.1 1.1 0 1 1 0 2.2h-3.3a1.1 1.1 0 1 1 0-2.2ZM3.4 15.6h3.3a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm8.9 0h8.3a1.1 1.1 0 1 1 0 2.2h-8.3a1.1 1.1 0 1 1 0-2.2Z"/><circle cx="14.9" cy="7.3" r="2.5"/><circle cx="9.1" cy="16.7" r="2.5"/>',
@@ -1492,31 +1493,6 @@
             '<span data-act="goWallets">去账户里设一下期初 ›</span></div>'
           : "") +
       "</div>" +
-      (function () {
-        var pp = planProgress();
-        if (!pp) return "";
-        return '<div class="card ov-card">' +
-          '<div class="card-title">我的计划' +
-            '<span class="kl-cap">每年 ' + fmtMoneyShort(pp.annual * 100) + ' 元 · 目标年生活费 ' +
-              fmtMoneyShort((pp.cost || 0) * 100) + "</span></div>" +
-          '<div class="pl-grid">' +
-            '<div><i>本月该投</i><b>¥' + money(pp.monthly * 100) + "</b></div>" +
-            '<div><i>本月已投</i><b>¥' + money(pp.done) + "</b></div>" +
-          "</div>" +
-          '<div class="plan-bar"><i style="width:' + pp.pct.toFixed(0) + '%"></i></div>' +
-          '<div class="fine-inline">' +
-            (pp.wallet
-              ? "按「转入" + esc(pp.wallet) + "」的钱算已投；没投够就转一下，记成转账即可。"
-              : "建一个名叫「投资户」的账户，往里转账就会被算成已投。") +
-          "</div>" +
-          '<div class="list-row" data-act="goPlan"><span>改计划 / 重新测算</span><span class="hint">›</span></div>' +
-        "</div>";
-      })() +
-      '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
-        '<div class="list-row" data-act="goHoldings"><span>持仓</span>' +
-          '<span class="hint">' + hs.list.length + " 只 · ¥" + money(hs.mv) + " ›</span></div>" +
-        '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
-          '<span class="hint">股息覆盖率 ' + cover + "% ›</span></div>" +
       "</div>"
     );
   }
@@ -2001,6 +1977,101 @@
   }
 
 
+
+  /* ================= 视图：投资（钱生钱的家） =================
+     把「持仓 / 分红复投测算 / 定投计划 / 选股」从账本视角里分出来：
+     账本管"花了多少"，投资管"钱怎么生钱"。两件事混在一页，两边都看不清。 */
+  function viewInvest() {
+    var hs = holdingStats();
+    var pp = planProgress();
+
+    var head =
+      '<div class="topbar" style="border-bottom:none">' +
+        '<div class="icon-btn"></div><h1>投资</h1><div class="icon-btn"></div>' +
+      "</div>" +
+      '<div class="hero">' +
+        '<div class="label">持仓市值</div>' +
+        '<div class="big"><span class="cur">¥</span>' + money(hs.mv) + "</div>" +
+        '<div class="delta ' + (hs.pnl < 0 ? "down" : hs.pnl > 0 ? "up" : "") + '">' +
+          "持仓盈亏 <b>" + (hs.pnl >= 0 ? "+" : "-") + "¥" + money(Math.abs(hs.pnl)) +
+          "（" + (hs.pnlPct >= 0 ? "+" : "") + hs.pnlPct.toFixed(1) + "%）</b></div>" +
+      "</div>";
+
+    var planCard = "";
+    if (pp) {
+      planCard =
+        '<div class="card ov-card">' +
+          '<div class="card-title">定投计划' +
+            '<span class="kl-cap">每年 ' + fmtMoneyShort(pp.annual * 100) + ' 元 · 目标年生活费 ' +
+              fmtMoneyShort((pp.cost || 0) * 100) + "</span></div>" +
+          '<div class="pl-grid">' +
+            '<div><i>本月该投</i><b>¥' + money(pp.monthly * 100) + "</b></div>" +
+            '<div><i>本月已投</i><b>¥' + money(pp.done) + "</b></div>" +
+          "</div>" +
+          '<div class="plan-bar"><i style="width:' + pp.pct.toFixed(0) + '%"></i></div>' +
+          '<div class="fine-inline">' +
+            (pp.wallet
+              ? "按「转入" + esc(pp.wallet) + "」的钱算已投；没投够就转一下，记成转账即可。"
+              : "建一个名叫「投资户」的账户，往里转账就会被算成已投。") +
+          "</div>" +
+          '<div class="list-row" data-act="goPlan"><span>调整计划 / 重新测算</span><span class="hint">›</span></div>' +
+        "</div>";
+    } else {
+      planCard =
+        '<div class="card ov-card">' +
+          '<div class="card-title">定投计划</div>' +
+          '<div class="fine-inline">还没有计划。先去「分红复投测算」算一下：每年投多少、多少年能覆盖生活费。</div>' +
+          '<div class="list-row" data-act="goPlan"><span>去做测算</span><span class="hint">›</span></div>' +
+        "</div>";
+    }
+
+    var entries =
+      '<div class="card ov-card"><div class="card-title">钱生钱</div>' +
+        '<div class="list-row" data-act="goHoldings"><span>持仓明细</span>' +
+          '<span class="hint">' + (hs.list.length ? hs.list.length + " 只 ›" : "还没有 ›") + "</span></div>" +
+        '<div class="list-row" data-act="goPlan"><span>分红复投测算</span>' +
+          '<span class="hint">按持仓算哪年能覆盖生活费 ›</span></div>' +
+        '<div class="list-row" data-act="goPick"><span>选股榜单</span>' +
+          '<span class="hint">按股息质量挑股票 ›</span></div>' +
+        '<div class="list-row" data-act="goOverview"><span>财务全景</span>' +
+          '<span class="hint">净资产 / 股息覆盖率 ›</span></div>' +
+      "</div>";
+
+    var brief = "";
+    if (hs.list.length) {
+      brief = '<div class="card ov-card"><div class="card-title">持仓一览</div>' +
+        hs.list.slice(0, 5).map(function (x) {
+          var up = x.pnl > 0, down = x.pnl < 0;
+          return '<div class="hrow" data-act="openStock" data-code="' + esc(x.code) + '">' +
+            '<div class="glyph">' + iconOf("w_fund") + "</div>" +
+            '<div class="hmain">' +
+              '<div class="hline"><span class="nm">' + esc(x.name) + "</span>" +
+                '<span class="mv">' + cash(x.mv) + "</span></div>" +
+              '<div class="hline"><span class="sub">' + esc(x.code) + " · " + fmtShares(x.shares) + "股</span>" +
+                '<span class="pnl ' + (up ? "up" : down ? "down" : "") + '">' +
+                  (x.stale ? "待更新" :
+                    (x.pnl >= 0 ? "+" : "-") + fmtMoneyShort(x.pnl) +
+                    " (" + (x.pnlPct >= 0 ? "+" : "") + x.pnlPct.toFixed(1) + "%)") +
+                "</span></div>" +
+            "</div>" +
+          "</div>";
+        }).join("") +
+        (hs.list.length > 5
+          ? '<div class="list-row" data-act="goHoldings"><span>还有 ' + (hs.list.length - 5) + " 只</span>" +
+            '<span class="hint">全部持仓 ›</span></div>'
+          : "") +
+        '<div class="list-row" data-act="goHoldingNew"><span>＋ 添加持仓</span><span class="hint">›</span></div>' +
+      "</div>";
+    } else {
+      brief = '<div class="card ov-card"><div class="card-title">持仓一览</div>' +
+        '<div class="fine-inline">还没有持仓。加一只进来，就能看它的股息评分、日 K 和分红能拿多少。</div>' +
+        '<div class="list-row" data-act="goHoldingNew"><span>＋ 添加持仓</span><span class="hint">›</span></div>' +
+      "</div>";
+    }
+
+    setTimeout(function () { refreshQuotes(false); }, 0);
+    return head + planCard + entries + brief;
+  }
 
   /* ================= 视图：选股榜单 =================
      后端 /screener 早就做好了（评分/股息率/每股分红/增速都能筛），前端一直没入口。
@@ -5821,6 +5892,7 @@
   var TABS = [
     { href: "#/book", key: "book", ic: "nav_book", name: "账本" },
     { href: "#/assets", key: "assets", ic: "nav_stats", name: "统计" },
+    { href: "#/invest", key: "invest", ic: "nav_fund", name: "投资" },
     { href: "#/decide", key: "decide", ic: "nav_decide", name: "决策" },
     { href: "#/config", key: "config", ic: "nav_config", name: "设置" }
   ];
@@ -5843,8 +5915,8 @@
   /* 二级页的上一级：返回按钮回到自己所属的那一页，
      别不管从哪儿来都甩回账本——从资产点进持仓，退回资产才是对的。 */
   var VIEW_PARENT = {
-    overview: "assets",
-    holdings: "assets",
+    overview: "invest",
+    holdings: "invest",
     wallet: "assets",
     wallets: "config",
     tags: "config",
@@ -5855,9 +5927,9 @@
   VIEW_PARENT.stock = "holdings";
   VIEW_PARENT.holdingnew = "holdings";   // 添加持仓退回持仓页
   VIEW_PARENT.holdingedit = "holdings";  // 修改持仓退回持仓页
-  VIEW_PARENT.plan = "overview";         // 测算退回财务全景
+  VIEW_PARENT.plan = "invest";           // 测算退回投资页
   VIEW_PARENT.autorules = "config";      // 规则退回设置
-  VIEW_PARENT.pick = "assets";           // 选股退回资产页
+  VIEW_PARENT.pick = "invest";           // 选股退回投资页
 
   function goBack() {
     var v = parseHash().view;
@@ -5942,6 +6014,7 @@
     else if (r.view === "plan") body = viewPlan();
     else if (r.view === "autorules") body = viewAutoRules();
     else if (r.view === "pick") body = viewPick();
+    else if (r.view === "invest") body = viewInvest();
     else if (r.view === "stock") body = viewStock(normCode(r.params.code || ""));
     else if (r.view === "wallet") body = viewWalletDetail(r.params);
     else if (r.view === "overview") body = viewOverview();
@@ -5973,6 +6046,7 @@
     // 持仓 / 财务全景是从「资产」进的二级页，底部 tab 仍高亮资产，避免全暗
     // 老链接 #/stats 也高亮「统计」所在的资产页
     var activeKey = (r.view === "stats" || r.view === "wallet") ? "assets"
+      : (r.view === "invest") ? "invest"
       : (r.view === "pick" || r.view === "holdings" || r.view === "holdingnew" || r.view === "holdingedit" ||
          r.view === "overview" || r.view === "stock" || r.view === "plan") ? "assets"
       : (r.view === "wallets" || r.view === "tags" || r.view === "config" || r.view === "autorules") ? "config"
