@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261106-lines2";
+  var BUILD_ID = "20261106-exit1";
 
   var DEFAULTS = {
     wallets: [
@@ -4050,6 +4050,11 @@
           parts.push("到 70 分位（PB " + Number(rp.pb_p70).toFixed(2) + '）→ ' +
             Number(rp.target_p70).toFixed(2) + " 元" +
             (Number.isFinite(u70) ? "（" + (u70 >= 0 ? "+" : "") + u70.toFixed(0) + "%）" : ""));
+        }
+        /* 离场纪律：目标价告诉用户"涨到多少算修复完"，这里补"等多久算白等"。
+           光有目标价没有时限，容易变成死等一只不会再修复的票。 */
+        if (Number.isFinite(uMed) && uMed > 0) {
+          parts.push("多数 2~3 年内到位，36 个月还没动就换票");
         }
         tipRep = '<div class="vw-tip">' + parts.join("；") + "</div>";
       }
