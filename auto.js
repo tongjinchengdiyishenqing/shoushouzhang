@@ -72,7 +72,7 @@
   var OUT_WORDS = ["付款", "支付成功", "已支付", "支付", "消费", "支出", "扣款", "转出", "已付款",
     "付款成功", "交易成功", "成功付款", "你已成功付款", "支出了", "花费", "购买"];
   /* 收入词要"整词"，不能放裸「收款」——「收款方 xxx」是支出语境，放了会全判成收入 */
-  var IN_WORDS = ["已收款", "收款成功", "收到一笔", "退款", "入账", "到账", "收入", "转入",
+  var IN_WORDS = ["收款金额", "已收款", "收款成功", "收到一笔", "退款", "入账", "到账", "收入", "转入",
     "收到", "已到账", "退款成功", "退回", "返现", "代发", "工资", "薪资", "奖金", "绩效",
     "存入", "汇入"];
 
@@ -124,8 +124,13 @@
       .replace(/[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?/g, " ");
   }
 
+  /* 「余额/可用余额」不是这笔交易的钱。银行短信每条都带，不切掉就会被当成第二笔。 */
+  function stripBalance(text) {
+    return String(text || "").replace(/(?:可用|账户|卡)?余额[^0-9]{0,3}[0-9][0-9,.]*\s*元?/g, " ");
+  }
+
   function findAmount(text) {
-    var t = stripDateTime(text);
+    var t = stripBalance(stripDateTime(text));
     for (var i = 0; i < AMOUNT_PATTERNS.length; i++) {
       var m = t.match(AMOUNT_PATTERNS[i]);
       if (m) {
@@ -137,7 +142,8 @@
   }
 
   function findFlow(text) {
-    var t = text;
+    /* 「支付时间 2026-11-05 10:26」里的「支付」不是交易方向，先切掉 */
+    var t = String(text || "").replace(/支付时间[^\s]*/g, " ");
     // 收入词优先：「退款」里也含「款」，必须先看收入侧
     for (var i = 0; i < IN_WORDS.length; i++) {
       if (t.indexOf(IN_WORDS[i]) >= 0) return "in";
@@ -251,8 +257,13 @@
      关键判断：有几行自带金额？
        - 最多一行 → 这是一条支付通知，常把金额和商户拆成两三行，整段算一笔
        - 多行都有金额 → 这是账单明细，一行一笔 */
+  /* 采集端会把原始短信附在 '---' 之后供人核对；那段里也有金额，不能再进解析器 */
+  function cutRawTail(text) {
+    return String(text || "").split(/^---+$/m)[0];
+  }
+
   function splitBlocks(text) {
-    var all = String(text || "");
+    var all = stripBalance(cutRawTail(String(text || "")));
     var lines = all.split(/\r?\n/).map(norm).filter(Boolean);
     var withAmount = lines.filter(function (l) { return !!findAmount(l); });
 
