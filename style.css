@@ -4292,3 +4292,10 @@ html, body { overscroll-behavior-y: contain; }
   line-height: 1.6;
   color: var(--ink-3);
 }
+
+/* 温度条首次要算约 10 秒，给个占位，别让页面看起来少了东西 */
+.mkt-wait {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
