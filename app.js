@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-calc1";
+  var BUILD_ID = "20261105-fix1";
 
   var DEFAULTS = {
     wallets: [
@@ -778,7 +778,7 @@
   /* 底栏用实心图标（钱往的底栏是实心剪影，线稿在小尺寸下发虚） */
   var SOLID = {
     nav_book: '<path fill-rule="evenodd" d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2.2 4.6a1 1 0 1 0 0 2h5.6a1 1 0 1 0 0-2H9.2Zm0 4a1 1 0 1 0 0 2h3.6a1 1 0 1 0 0-2H9.2Z"/>',
-    nav_fund: '<path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/><path d="M3 21h18"/>',
+    nav_fund: '<path d="M12.7 5.3a1 1 0 0 0-1.4 0L7.2 9.4a1 1 0 0 0 1.4 1.4l2.4-2.4v9.6a1 1 0 1 0 2 0V8.4l2.4 2.4a1 1 0 0 0 1.4-1.4l-4.1-4.1Z"/><path d="M4 19.6h16a1 1 0 1 1 0 2H4a1 1 0 1 1 0-2Z"/>',
     nav_stats: '<path d="M3.2 12.6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 19v-5.2a1.2 1.2 0 0 1 1.2-1.2Zm6.9-6h3.4a1.2 1.2 0 0 1 1.2 1.2V19a1.2 1.2 0 0 1-1.2 1.2h-3.4A1.2 1.2 0 0 1 8.9 19V7.8a1.2 1.2 0 0 1 1.2-1.2Zm6.9-3.4h3.8A1.2 1.2 0 0 1 22 4.4V19a1.2 1.2 0 0 1-1.2 1.2h-3.8A1.2 1.2 0 0 1 15.8 19V4.4a1.2 1.2 0 0 1 1.2-1.2Z"/>',
     nav_assets: '<path fill-rule="evenodd" d="M6.4 4h11.2A4.4 4.4 0 0 1 22 8.4v7.2a4.4 4.4 0 0 1-4.4 4.4H6.4A4.4 4.4 0 0 1 2 15.6V8.4A4.4 4.4 0 0 1 6.4 4Zm11 5.1a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2Z"/>',
     nav_config: '<path d="M3.4 6.2h8.2a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm13.9 0h3.3a1.1 1.1 0 1 1 0 2.2h-3.3a1.1 1.1 0 1 1 0-2.2ZM3.4 15.6h3.3a1.1 1.1 0 1 1 0 2.2H3.4a1.1 1.1 0 1 1 0-2.2Zm8.9 0h8.3a1.1 1.1 0 1 1 0 2.2h-8.3a1.1 1.1 0 1 1 0-2.2Z"/><circle cx="14.9" cy="7.3" r="2.5"/><circle cx="9.1" cy="16.7" r="2.5"/>',
@@ -4542,8 +4542,11 @@
       "</div>";
     }).join("");
 
-    var remoteBlock = remoteRows
-      ? '<div class="au-sec-title">自动采集 · ' + (a.remote || []).length + " 笔待确认</div>" +
+    var remoteLoading = (a.remote === null || a.remote === undefined);
+    var remoteBlock = remoteLoading
+      ? '<div class="au-sec-title">自动采集 · 正在拉取…</div>' +
+        '<div class="au-loading"><i></i><i></i><i></i></div>'
+      : remoteRows      ? '<div class="au-sec-title">自动采集 · ' + (a.remote || []).length + " 笔待确认</div>" +
         '<div class="au-list">' + remoteRows + "</div>" +
         '<button class="btn-primary" data-act="autoRemoteCommit">确认记下（' + (a.remote || []).length + " 笔）</button>" +
         '<button class="btn-ghost au-ignore-all" data-act="autoRemoteIgnoreAll">全部忽略（' +
@@ -4599,7 +4602,8 @@
        原来只拉一次（_rawFetched），结果采集端刚上报的那笔，用户切回来根本看不见。 */
     if (auth && auth.token) {
       var nowRaw = Date.now();
-      if (!a._rawAt || nowRaw - a._rawAt > 10000) {
+      var noList = !a.remote || !a.remote.length;
+      if (noList || !a._rawAt || nowRaw - a._rawAt > 10000) {
         a._rawAt = nowRaw;
         setTimeout(function () { loadPendingRaw(); }, 0);
       }
@@ -7594,7 +7598,17 @@
     else if (act === "exportCsv") exportCsv();
     else if (act === "importCsv") importCsv();
     else if (act === "resetData") resetData();
-    else if (act === "goAuto") { autoState().parsed = false; location.hash = "#/auto"; }
+    else if (act === "goAuto") {
+      /* 点「去确认」是用户明确要看账单：别受 10 秒节流和旧指纹影响，
+         立刻清空旧列表、标成加载中，进去就开始拉。 */
+      var av = autoState();
+      av.parsed = false;
+      av.remote = null;      // null = 加载中（界面显示「正在拉取…」）
+      av._rawSig = "";
+      av._rawAt = 0;
+      loadPendingRaw();
+      location.hash = "#/auto";
+    }
     else if (act === "autoBack") { autoState().parsed = false; location.hash = "#/book"; }
     else if (act === "autoRemoteCommit") autoRemoteCommit();
     else if (act === "autoRemoteIgnoreAll") autoRemoteIgnoreAll();
