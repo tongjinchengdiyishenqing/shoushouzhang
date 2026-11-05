@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-stats1";
+  var BUILD_ID = "20261105-strategy1";
 
   var DEFAULTS = {
     wallets: [
@@ -2278,19 +2278,38 @@
      所以「一排 100 分」不代表一堆便宜货——想找便宜的，看「便宜度」和「市赚率」。
      列表里同时给实时价：价格是买点，评分是资质，两件事并排看才有用。 */
 
-  var PICK_SORTS = [
-    { k: "total2", t: "综合" },
-    { k: "value", t: "便宜度" },
-    { k: "score", t: "股息评分" },
-    { k: "yield", t: "股息率" }
-  ];
+  /* 排序选项跟着档位走：两拨人关心的"排序依据"本来就不是一回事。
+     综合档是混合分；收息档看股息率处在历史什么位置；修复档看 PB/PE 分位。 */
+  var PICK_SORTS_BY = {
+    "": [
+      { k: "total2", t: "综合" },
+      { k: "value", t: "便宜度" },
+      { k: "score", t: "股息评分" },
+      { k: "yield", t: "股息率" }
+    ],
+    dividend: [
+      { k: "dy", t: "股息率" },
+      { k: "dypct", t: "股息分位" },
+      { k: "total2", t: "综合" },
+      { k: "score", t: "股息评分" }
+    ],
+    repair: [
+      { k: "pb", t: "PB分位" },
+      { k: "pe", t: "PE分位" },
+      { k: "dy", t: "股息率" },
+      { k: "total2", t: "综合" }
+    ]
+  };
+  function pickSorts(strategy) { return PICK_SORTS_BY[strategy] || PICK_SORTS_BY[""]; }
+  var PICK_SORTS = PICK_SORTS_BY[""];   // 兼容旧引用
 
   function pickState() {
     if (!ui.pick) {
       ui.pick = {
         sort: "total2", minScore: 0, minYield: 0, minValue: 0, industry: "",
-        filters: false,   // 筛选区默认收起，进页面先看到榜单
-        inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0
+        inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0,
+        filters: false,  // 筛选区默认收起，进页面先看到榜单
+        strategy: ""     // ""=综合 / dividend=吃分红 / repair=吃估值修复
       };
     }
     return ui.pick;
@@ -2345,6 +2364,7 @@
     if (Number(p.minYield) > 0) q.push("min_yield=" + Number(p.minYield));
     if (Number(p.minValue) > 0) q.push("min_value=" + Number(p.minValue));
     if (p.industry) q.push("industry=" + encodeURIComponent(p.industry));
+    if (p.strategy) q.push("strategy=" + p.strategy);
     apiFetch("/screener?" + q.join("&"), {})
       .then(function (r) {
         if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
@@ -2390,7 +2410,8 @@
       }).join("");
     }
 
-    var sortChips = PICK_SORTS.map(function (x) {
+    var sortList = pickSorts(p.strategy);
+    var sortChips = sortList.map(function (x) {
       return '<span class="hfee-q' + (p.sort === x.k ? " on" : "") +
         '" data-act="pickSort" data-v="' + x.k + '">' + x.t + "</span>";
     }).join("");
@@ -2398,7 +2419,7 @@
     /* 筛选区默认收起：一屏 844px，光筛选卡片就要吃掉 300，榜单被挤到第二屏。
        收起时把"当前在什么条件下看榜"压成一条摘要，点「调整」才展开。 */
     var sortName = "综合";
-    PICK_SORTS.forEach(function (x) { if (x.k === p.sort) sortName = x.t; });
+    sortList.forEach(function (x) { if (x.k === p.sort) sortName = x.t; });
     var valName = Number(p.minValue) > 0 ? "≥" + p.minValue : "不限";
     var extraOn = [];
     if (Number(p.minYield) > 0) extraOn.push("股息≥" + p.minYield + "%");
@@ -2407,10 +2428,19 @@
     var filtersOpen = !!p.filters;
 
     var form =
+      '<div class="pk-strategy">' +
+        '<span class="pk-stg' + (p.strategy ? "" : " on") + '" data-act="pickStrategy" data-v="">综合</span>' +
+        '<span class="pk-stg' + (p.strategy === "dividend" ? " on" : "") +
+          '" data-act="pickStrategy" data-v="dividend">吃分红</span>' +
+        '<span class="pk-stg' + (p.strategy === "repair" ? " on" : "") +
+          '" data-act="pickStrategy" data-v="repair">吃修复</span>' +
+      "</div>" +
       '<div class="card ov-card pk-panel">' +
         '<div class="pk-sum" data-act="pickFilter">' +
           '<span class="pk-sum-k">排序</span><span class="pk-sum-v">' + esc(sortName) + "</span>" +
-          '<span class="pk-sum-k">便宜度</span><span class="pk-sum-v">' + esc(valName) + "</span>" +
+          (p.strategy === "dividend"
+            ? '<span class="pk-sum-k">范围</span><span class="pk-sum-v">股息率≥3%</span>'
+            : '<span class="pk-sum-k">便宜度</span><span class="pk-sum-v">' + esc(valName) + "</span>") +
           (extraOn.length ? '<span class="pk-sum-x">' + esc(extraOn.join(" · ")) + "</span>" : "") +
           '<span class="pk-sum-more">' + (filtersOpen ? "收起" : "调整") +
             '<i class="pk-more-i">' + (filtersOpen ? "⌃" : "⌄") + "</i></span>" +
@@ -2478,6 +2508,53 @@
         var pctHtml = pct != null && pct >= 90
           ? '<span class="pk-pct">前 ' + Math.max(1, Math.round(100 - pct)) + "%</span>"
           : "";
+
+        /* 三档各自一套指标 —— 这是"两拨人看不同的数"的落点。
+           综合：便宜度 / 市赚率 / 股息（原来那套）
+           吃分红：股息率 / 股息率分位 / 分红覆盖率 + 加仓信号
+           吃修复：PB / PB 分位（越低越便宜）/ PE 分位 */
+        var vLabel, tone, metaHtml, pctHtml = "";
+        if (p.strategy === "dividend") {
+          var dyPct = x.dy != null ? (Number(x.dy) * 100).toFixed(2) + "%" : "—";
+          var dyQ = x.dy_pct5y != null ? Math.round(Number(x.dy_pct5y)) : null;
+          var cover = x.cover_pct != null ? Math.round(Number(x.cover_pct)) + "%" : "—";
+          vLabel = x.div_signal || "无信号";
+          tone = /可加仓/.test(vLabel) ? "cheap"
+            : /瑕疵|待核/.test(vLabel) ? "fair"
+            : /别加|太低/.test(vLabel) ? "rich" : "fair";
+          metaHtml =
+            '<span class="pk-cell">股息率<b>' + dyPct + "</b></span>" +
+            '<span class="pk-cell">分位<b>' + (dyQ != null ? dyQ + "%" : "—") + "</b></span>" +
+            '<span class="pk-cell' + (x.cover_pct != null && Number(x.cover_pct) > 100 ? " warn" : "") +
+              '">覆盖<b>' + cover + "</b></span>";
+          // 分红语境里"分位高"＝股息率处在历史高位＝便宜，别跟着修复档一起标"高位"让人误会
+          pctHtml = "";
+        } else if (p.strategy === "repair") {
+          var pb = x.pb != null ? Number(x.pb).toFixed(2) : "—";
+          var pbQ = x.pb_pct5y != null ? Math.round(Number(x.pb_pct5y)) : null;
+          var peQ = x.pe_pct5y != null ? Math.round(Number(x.pe_pct5y)) : null;
+          vLabel = pbQ == null ? "缺数据"
+            : pbQ <= 10 ? "历史极低"
+            : pbQ <= 30 ? "便宜"
+            : pbQ <= 60 ? "合理"
+            : pbQ <= 85 ? "偏贵" : "历史高位";
+          tone = /极低|^便宜/.test(vLabel) ? "cheap" : /偏贵|高位/.test(vLabel) ? "rich" : "fair";
+          metaHtml =
+            '<span class="pk-cell">PB<b>' + pb + "</b></span>" +
+            '<span class="pk-cell">PB分位<b>' + (pbQ != null ? pbQ + "%" : "—") + "</b></span>" +
+            '<span class="pk-cell">PE分位<b>' + (peQ != null ? peQ + "%" : "—") + "</b></span>";
+        } else {
+          vLabel = x.value_label || pickValueLabel(x.value_score, x.value_premium);
+          tone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
+          metaHtml =
+            '<span class="pk-cell">便宜度<b>' + (x.value_score != null ? Number(x.value_score).toFixed(0) : "—") + "</b></span>" +
+            '<span class="pk-cell">市赚率<b>' + (x.value_pr != null ? Number(x.value_pr).toFixed(2) : "—") + "</b></span>" +
+            '<span class="pk-cell">股息<b>' + y + "</b></span>";
+          var pct = x.value_pct != null ? Number(x.value_pct) : null;
+          pctHtml = pct != null && pct >= 90
+            ? '<span class="pk-pct">前 ' + Math.max(1, Math.round(100 - pct)) + "%</span>"
+            : "";
+        }
         return '<div class="pk-row" data-act="openStock" data-code="' + esc(x.ts_code) + '">' +
           '<i class="pk-stripe ' + tone + '"></i>' +
           '<div class="pk-l">' +
@@ -2488,11 +2565,7 @@
             "</div>" +
             '<div class="pk-sub">' + esc(x.ts_code) +
               (x.industry ? " · " + esc(String(x.industry).replace(/^[A-Z]\s+/, "").slice(0, 10)) : "") + "</div>" +
-            '<div class="pk-meta">' +
-              '<span class="pk-cell">便宜度<b>' + vScore + "</b></span>" +
-              '<span class="pk-cell">市赚率<b>' + pr + "</b></span>" +
-              '<span class="pk-cell">股息<b>' + y + "</b></span>" +
-            "</div>" +
+            '<div class="pk-meta">' + metaHtml + "</div>" +
           "</div>" +
           '<div class="pk-r">' +
             (price != null
@@ -7749,6 +7822,15 @@
     else if (act === "cpMode") { compoundState().mode = el.getAttribute("data-v") || "month"; render(); }
     else if (act === "pickReload") pickLoad();
     else if (act === "pickFilter") { var _pf = pickState(); _pf.filters = !_pf.filters; render(); }
+    else if (act === "pickStrategy") {
+      /* 换的是"看哪拨人的问题"，排序也跟着换默认值：
+         吃分红按股息率、吃修复按 PB 分位、综合按六维综合分。 */
+      var _ps = pickState();
+      _ps.strategy = el.getAttribute("data-v") || "";
+      _ps.sort = _ps.strategy === "dividend" ? "dy" : _ps.strategy === "repair" ? "pb" : "total2";
+      _ps.res = null;
+      pickLoad();
+    }
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
