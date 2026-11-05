@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-target1";
+  var BUILD_ID = "20261105-repairgate1";
 
   var DEFAULTS = {
     wallets: [
@@ -2405,6 +2405,11 @@
 
   function viewPick() {
     var p = pickState();
+    /* 没白名单却停在 repair（比如从旧链接进来、或权限刚被收回）→ 退回综合 */
+    if (p.strategy === "repair" && !(auth && auth.canRepair)) {
+      p.strategy = "";
+      p.sort = "total2";
+    }
     var head = '<div class="topbar"><div class="icon-btn" data-act="back">‹</div><h1>选股榜单</h1>' +
       '<div class="icon-btn"></div></div>';
 
@@ -2470,8 +2475,10 @@
         '<span class="pk-stg' + (p.strategy ? "" : " on") + '" data-act="pickStrategy" data-v="">综合</span>' +
         '<span class="pk-stg' + (p.strategy === "dividend" ? " on" : "") +
           '" data-act="pickStrategy" data-v="dividend">吃分红</span>' +
-        '<span class="pk-stg' + (p.strategy === "repair" ? " on" : "") +
-          '" data-act="pickStrategy" data-v="repair">吃修复</span>' +
+        (auth && auth.canRepair
+          ? '<span class="pk-stg' + (p.strategy === "repair" ? " on" : "") +
+            '" data-act="pickStrategy" data-v="repair">吃修复</span>'
+          : "") +
       "</div>" +
       '<div class="card ov-card pk-panel">' +
         '<div class="pk-sum" data-act="pickFilter">' +
@@ -6538,7 +6545,25 @@
     return true;
   }
 
+  /* 哪些功能对这个账号开放：目前只有"吃修复"板块要白名单。
+     后端 /feature/repair 判定，前端只负责藏起来——真正的闸在后端，改前端绕不过去。 */
+  var _featureLoading = false;
+  function loadFeatures() {
+    if (!auth || !auth.token) { return; }
+    _featureLoading = true;
+    apiFetch("/feature/repair", {})
+      .then(function (r) {
+        _featureLoading = false;
+        if (r.ok && r.body) {
+          auth.canRepair = !!r.body.allowed;
+          render();
+        }
+      })
+      .catch(function () { _featureLoading = false; });
+  }
+
   function render() {
+    if (auth && auth.canRepair === undefined && !_featureLoading) loadFeatures();
     var r = parseHash();
     var app = document.getElementById("app");
 
