@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-views1";
+  var BUILD_ID = "20261105-gate1";
 
   var DEFAULTS = {
     wallets: [
@@ -2313,7 +2313,9 @@
         sort: "total2", minScore: 0, minYield: 0, minValue: 0, industry: "",
         inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0,
         filters: false,  // 筛选区默认收起，进页面先看到榜单
-        strategy: ""     // ""=综合 / dividend=吃分红 / repair=吃估值修复
+        strategy: "",    // ""=综合 / dividend=吃分红 / repair=吃估值修复
+        maxPb: 0,        // 吃修复：PB 分位上限（0=不限）
+        minDyPct: 0,     // 吃分红：股息率分位下限（0=不限）
       };
     }
     return ui.pick;
@@ -2369,6 +2371,8 @@
     if (Number(p.minValue) > 0) q.push("min_value=" + Number(p.minValue));
     if (p.industry) q.push("industry=" + encodeURIComponent(p.industry));
     if (p.strategy) q.push("strategy=" + p.strategy);
+    if (Number(p.maxPb) > 0) q.push("max_pb_pct=" + Number(p.maxPb));
+    if (Number(p.minDyPct) > 0) q.push("min_dy_pct=" + Number(p.minDyPct));
     apiFetch("/screener?" + q.join("&"), {})
       .then(function (r) {
         if (!r.ok) throw new Error(errText(r.body, "HTTP " + r.status));
@@ -2414,6 +2418,34 @@
       }).join("");
     }
 
+    /* 门槛跟着档位裁剪：两拨人的判据不是一套尺子，
+       混在一起会让"吃修复"的页面挂着一堆股息门槛，用户不知道哪个才管用。 */
+    function gate(title, cap, act, list, cur, fmt) {
+      return '<div class="pk-panel-hd" style="padding-top:12px">' +
+          '<span class="pk-panel-t">' + title + "</span>" +
+          '<span class="kl-cap">' + cap + "</span>" +
+        "</div>" +
+        '<div class="chips-scroll hfee-row">' +
+          chipRow(act, list, cur, fmt, true) + "</div>";
+    }
+    var gateHtml = "";
+    if (p.strategy === "repair") {
+      gateHtml += gate("PB 分位 ≤", "越低越便宜：现在处在历史什么位置",
+        "pickMaxPb", [0, 10, 20, 30], p.maxPb, function (v) { return v ? "≤" + v + "%" : "不限"; });
+    } else if (p.strategy === "dividend") {
+      gateHtml += gate("股息率 ≥", "绝对收益底线，别只看分位",
+        "pickMinYield", [0, 3, 4, 5], p.minYield, function (v) { return v ? "≥" + v + "%" : "不限"; });
+      gateHtml += gate("股息分位 ≥", "越高越便宜：股息率处在历史高位",
+        "pickMinDyPct", [0, 70, 80, 90], p.minDyPct, function (v) { return v ? "≥" + v + "%" : "不限"; });
+    } else {
+      gateHtml += gate("只看便宜度 ≥", "满分 20，和股息评分是两个刻度",
+        "pickMinValue", [0, 12, 16, 18], p.minValue, function (v) { return v ? "≥" + v + " 分" : "不限"; });
+      gateHtml += gate("股息率 ≥", "按当前股价算的现金回报",
+        "pickMinYield", [0, 3, 4, 5], p.minYield, function (v) { return v ? "≥" + v + "%" : "不限"; });
+      gateHtml += gate("股息评分 ≥", "分红质量分，不等同便宜",
+        "pickMinScore", [0, 60, 70, 80], p.minScore, function (v) { return v ? "≥" + v + " 分" : "不限"; });
+    }
+
     var sortList = pickSorts(p.strategy);
     var sortChips = sortList.map(function (x) {
       return '<span class="hfee-q' + (p.sort === x.k ? " on" : "") +
@@ -2428,6 +2460,8 @@
     var extraOn = [];
     if (Number(p.minYield) > 0) extraOn.push("股息≥" + p.minYield + "%");
     if (Number(p.minScore) > 0) extraOn.push("评分≥" + p.minScore);
+    if (Number(p.maxPb) > 0) extraOn.push("PB分位≤" + p.maxPb + "%");
+    if (Number(p.minDyPct) > 0) extraOn.push("股息分位≥" + p.minDyPct + "%");
     if (p.industry) extraOn.push(String(p.industry).replace(/^[A-Z]\s+/, "").slice(0, 6));
     var filtersOpen = !!p.filters;
 
@@ -2442,9 +2476,12 @@
       '<div class="card ov-card pk-panel">' +
         '<div class="pk-sum" data-act="pickFilter">' +
           '<span class="pk-sum-k">排序</span><span class="pk-sum-v">' + esc(sortName) + "</span>" +
-          (p.strategy === "dividend"
-            ? '<span class="pk-sum-k">范围</span><span class="pk-sum-v">股息率≥3%</span>'
-            : '<span class="pk-sum-k">便宜度</span><span class="pk-sum-v">' + esc(valName) + "</span>") +
+          (p.strategy === "repair"
+            ? '<span class="pk-sum-k">PB分位</span><span class="pk-sum-v">' +
+              esc(Number(p.maxPb) > 0 ? "≤" + p.maxPb + "%" : "不限") + "</span>"
+            : p.strategy === "dividend"
+              ? '<span class="pk-sum-k">范围</span><span class="pk-sum-v">股息率≥3%</span>'
+              : '<span class="pk-sum-k">便宜度</span><span class="pk-sum-v">' + esc(valName) + "</span>") +
           (extraOn.length ? '<span class="pk-sum-x">' + esc(extraOn.join(" · ")) + "</span>" : "") +
           '<span class="pk-sum-more">' + (filtersOpen ? "收起" : "调整") +
             '<i class="pk-more-i">' + (filtersOpen ? "⌃" : "⌄") + "</i></span>" +
@@ -2455,31 +2492,14 @@
             '<span class="kl-cap">股息评分是分红质量，满分不等于便宜</span>' +
           "</div>" +
           '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
-          '<div class="pk-panel-hd">' +
-            '<span class="pk-panel-t">只看便宜度 ≥</span>' +
-            '<span class="kl-cap">满分 20，和股息评分是两个刻度</span>' +
-          "</div>" +
-          '<div class="chips-scroll hfee-row">' +
-            chipRow("pickMinValue", [0, 12, 16, 18], p.minValue, function (v) {
-              return v ? "≥" + v + " 分" : "不限";
-            }, true) + "</div>" +
-          '<div class="pk-adv-t">股息率门槛</div>' +
-          '<div class="chips-scroll hfee-row">' +
-            chipRow("pickMinYield", [0, 3, 4, 5], p.minYield, function (v) {
-              return v ? "≥" + v + "%" : "不限";
-            }, true) + "</div>" +
-          '<div class="pk-adv-t">股息评分门槛</div>' +
-          '<div class="chips-scroll hfee-row">' +
-            chipRow("pickMinScore", [0, 60, 70, 80], p.minScore, function (v) {
-              return v ? "≥" + v + " 分" : "不限";
-            }, true) + "</div>" +
+          gateHtml +
           '<div class="pk-adv-t">行业</div>' +
           '<div class="chips-scroll hfee-row">' +
             '<span class="hfee-q soft' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
             (p.inds || []).map(function (ind) {
               return '<span class="hfee-q soft' + (p.industry === ind ? " on" : "") +
                 '" data-act="pickIndustry" data-v="' + esc(ind) + '">' +
-                esc(String(ind).replace(/^[A-Z]\s+/, "").slice(0, 8)) + "</span>";
+                esc(String(ind).replace(/^[A-Z]\\s+/, "").slice(0, 8)) + "</span>";
             }).join("") +
           "</div>" +
         "</div>" +
@@ -7920,11 +7940,16 @@
       _ps.strategy = el.getAttribute("data-v") || "";
       _ps.sort = _ps.strategy === "dividend" ? "dy" : _ps.strategy === "repair" ? "pb" : "total2";
       _ps.res = null;
+      /* 换档就把上一档的门槛清掉：吃修复里设的"便宜度≥12"留到吃分红，
+         用户会以为自己筛过股息，其实筛的是另一套口径 */
+      _ps.minValue = 0; _ps.minYield = 0; _ps.minScore = 0; _ps.maxPb = 0; _ps.minDyPct = 0;
       pickLoad();
     }
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickMaxPb") { var _mp = pickState(); _mp.maxPb = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
+    else if (act === "pickMinDyPct") { var _md = pickState(); _md.minDyPct = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinValue") {
       /* 设了便宜度门槛就顺手把排序切到「便宜度」：
          筛出便宜货却还按"综合"（含估值权重）排，用户会觉得两边在打架。
