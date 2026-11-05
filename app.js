@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-strategy1";
+  var BUILD_ID = "20261105-roe1";
 
   var DEFAULTS = {
     wallets: [
@@ -2532,17 +2532,25 @@
         } else if (p.strategy === "repair") {
           var pb = x.pb != null ? Number(x.pb).toFixed(2) : "—";
           var pbQ = x.pb_pct5y != null ? Math.round(Number(x.pb_pct5y)) : null;
-          var peQ = x.pe_pct5y != null ? Math.round(Number(x.pe_pct5y)) : null;
           vLabel = pbQ == null ? "缺数据"
             : pbQ <= 10 ? "历史极低"
             : pbQ <= 30 ? "便宜"
             : pbQ <= 60 ? "合理"
             : pbQ <= 85 ? "偏贵" : "历史高位";
           tone = /极低|^便宜/.test(vLabel) ? "cheap" : /偏贵|高位/.test(vLabel) ? "rich" : "fair";
+          var roe = x.roe != null ? Number(x.roe).toFixed(1) + "%" : "—";
+          var roeTrend = x.roe_trend || "";
           metaHtml =
             '<span class="pk-cell">PB<b>' + pb + "</b></span>" +
-            '<span class="pk-cell">PB分位<b>' + (pbQ != null ? pbQ + "%" : "—") + "</b></span>" +
-            '<span class="pk-cell">PE分位<b>' + (peQ != null ? peQ + "%" : "—") + "</b></span>";
+            '<span class="pk-cell">分位<b>' + (pbQ != null ? pbQ + "%" : "—") + "</b></span>" +
+            '<span class="pk-cell' + (x.roe != null && Number(x.roe) < 3 ? " warn" : "") +
+              '">ROE<b>' + roe + "</b></span>";
+          /* ROE 趋势是这一档的关键信息：PB 低是"打折"，ROE 回升才说明"资产还在赚钱"。
+             回调用绿色，缓降用橙，恶化不会出现在列表里（后端已排除）。 */
+          if (roeTrend) {
+            var tc = roeTrend === "回升" ? "up" : roeTrend === "缓降" ? "down" : "flat";
+            pctHtml = '<span class="pk-trend ' + tc + '">' + esc(roeTrend) + "</span>";
+          }
         } else {
           vLabel = x.value_label || pickValueLabel(x.value_score, x.value_premium);
           tone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
