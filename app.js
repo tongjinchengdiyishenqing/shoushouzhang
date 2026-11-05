@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-gate1";
+  var BUILD_ID = "20261105-target1";
 
   var DEFAULTS = {
     wallets: [
@@ -3984,6 +3984,27 @@
               esc(rp.pb_label || "—") + (rp.roe_trend ? " · " + esc(rp.roe_trend) : "") + "</div>" +
           "</div>"
         : "";
+      /* 修复目标价：告诉用户"涨到多少就算修复完成"。
+         中位是常见目标，负空间说明已经修复过了——这比"分位 67%"直观得多。 */
+      var tipRep = "";
+      if (rp && rp.target_med != null && rp.pb_med != null) {
+        var uMed = Number(rp.upside_med);
+        var parts = ['修复到 5 年中位（PB ' + Number(rp.pb_med).toFixed(2) + '）→ ' +
+          Number(rp.target_med).toFixed(2) + " 元"];
+        if (Number.isFinite(uMed)) {
+          parts.push(uMed >= 0
+            ? "还有 " + uMed.toFixed(0) + "% 空间"
+            : "已超过 " + Math.abs(uMed).toFixed(0) + "%（修复基本完成）");
+        }
+        if (rp.target_p70 != null) {
+          var u70 = Number(rp.upside_p70);
+          parts.push("到 70 分位（PB " + Number(rp.pb_p70).toFixed(2) + '）→ ' +
+            Number(rp.target_p70).toFixed(2) + " 元" +
+            (Number.isFinite(u70) ? "（" + (u70 >= 0 ? "+" : "") + u70.toFixed(0) + "%）" : ""));
+        }
+        tipRep = '<div class="vw-tip">' + parts.join("；") + "</div>";
+      }
+
       var divRow = dv2
         ? '<div class="vw-row" data-act="goPickStrategy" data-v="dividend">' +
             '<div class="vw-k">吃分红</div>' +
@@ -3998,7 +4019,7 @@
         viewsCard = '<div class="card ov-card">' +
           '<div class="card-title">两种看法' +
             '<span class="kl-cap">同一只票，两拨人看到的不一样</span></div>' +
-          repRow + divRow +
+          repRow + tipRep + divRow +
           '<div class="sd-note">PB 分位越低越便宜，股息率分位越高越便宜；两套都是"相对自己历史"，' +
             '不是和别的公司比。点一行进对应榜单。</div>' +
         "</div>";
