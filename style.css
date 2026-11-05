@@ -3747,3 +3747,10 @@ html, body { overscroll-behavior-y: contain; }
   background: var(--accent);
   transition: width 0.25s ease;
 }
+
+/* 复利计算器的逐年表：默认只占一屏高度，里面自己滚 */
+.cmp-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
