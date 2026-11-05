@@ -32,7 +32,7 @@
   var APP_VERSION = "1.0.0";
   /* 每次发版改这里：设置 → 关于与更新 → 构建 会显示这串，
      用它能一眼确认手机拿到的是不是最新 app.js（省得反复怀疑缓存）。 */
-  var BUILD_ID = "20261105-back1";
+  var BUILD_ID = "20261105-sms1";
 
   var DEFAULTS = {
     wallets: [
@@ -6174,6 +6174,7 @@
           "<div class='consent-row'><b>账本</b><span>记录在本机；加密后才上传，云端和我们都解不开</span></div>" +
           "<div class='consent-row'><b>账号</b><span>只存用户名和密码的哈希，不存明文</span></div>" +
           "<div class='consent-row'><b>自动记账</b><span>需你手动开启无障碍权限；只读支付结果页的文字与截图，只取金额、商户、时间；不读聊天、不读其他应用</span></div>" +
+        "<div class='consent-row'><b>银行短信</b><span>开短信权限后，只读收到的那一条，取金额/商户/时间；不读历史短信、不读验证码，原文不上传</span></div>" +
           "<div class='consent-row'><b>第三方</b><span>截图识别会发给第三方视觉服务（DeepSeek / 火山方舟），仅传图像，不带你的账号信息</span></div>" +
           "<div class='consent-row'><b>你的权利</b><span>随时导出全部数据、随时注销并删除云端数据</span></div>" +
         "</div>" +
