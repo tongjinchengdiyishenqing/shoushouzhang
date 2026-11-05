@@ -2270,7 +2270,8 @@
     if (!ui.pick) {
       ui.pick = {
         sort: "total2", minScore: 0, minYield: 0, minValue: 0, industry: "",
-        inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0
+        inds: null, quotes: {}, quoteAt: "", loading: false, res: null, err: "", at: 0,
+        more: false   // 「股息率/评分/行业」高级筛选默认收起，别把榜单挤到第二屏
       };
     }
     return ui.pick;
@@ -2367,32 +2368,26 @@
       }).join("");
     }
 
+    /* 排序做成"分段控件"：一屏只放得下 4 个，选中态实心，比一排胶囊更像看板 */
     var sortChips = PICK_SORTS.map(function (x) {
       return '<span class="hfee-q' + (p.sort === x.k ? " on" : "") +
         '" data-act="pickSort" data-v="' + x.k + '">' + x.t + "</span>";
     }).join("");
 
-    var form =
-      '<div class="card ov-card">' +
-        '<div class="card-title">怎么排' +
-          '<span class="kl-cap">股息评分＝分红质量，满分不等于便宜</span></div>' +
-        '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
-        '<div class="card-title" style="padding-top:12px">便宜度（越高越便宜）</div>' +
-        '<div class="chips-scroll hfee-row">' +
-          chipRow("pickMinValue", [0, 12, 16, 18], p.minValue, function (v) {
-            return v ? "≥" + v + " 分" : "不限";
-          }) + "</div>" +
-        '<div class="card-title" style="padding-top:12px">股息率门槛</div>' +
+    var moreOpen = !!p.more;
+    var advanced =
+      '<div class="pk-adv' + (moreOpen ? " open" : "") + '">' +
+        '<div class="pk-adv-t">股息率门槛</div>' +
         '<div class="chips-scroll hfee-row">' +
           chipRow("pickMinYield", [0, 3, 4, 5], p.minYield, function (v) {
             return v ? "≥" + v + "%" : "不限";
           }) + "</div>" +
-        '<div class="card-title" style="padding-top:12px">股息评分门槛</div>' +
+        '<div class="pk-adv-t">股息评分门槛</div>' +
         '<div class="chips-scroll hfee-row">' +
           chipRow("pickMinScore", [0, 60, 70, 80], p.minScore, function (v) {
             return v ? "≥" + v + " 分" : "不限";
           }) + "</div>" +
-        '<div class="card-title" style="padding-top:12px">行业</div>' +
+        '<div class="pk-adv-t">行业</div>' +
         '<div class="chips-scroll hfee-row">' +
           '<span class="hfee-q' + (p.industry ? "" : " on") + '" data-act="pickIndustry" data-v="">全部行业</span>' +
           (p.inds || []).map(function (ind) {
@@ -2400,6 +2395,27 @@
               '" data-act="pickIndustry" data-v="' + esc(ind) + '">' + esc(String(ind).slice(0, 8)) + "</span>";
           }).join("") +
         "</div>" +
+      "</div>";
+
+    var form =
+      '<div class="card ov-card pk-panel">' +
+        '<div class="pk-panel-hd">' +
+          '<span class="pk-panel-t">怎么排</span>' +
+          '<span class="kl-cap">股息评分是分红质量，满分不等于便宜</span>' +
+        "</div>" +
+        '<div class="chips-scroll hfee-row">' + sortChips + "</div>" +
+        '<div class="pk-panel-hd">' +
+          '<span class="pk-panel-t">便宜度 ≥</span>' +
+          '<span class="kl-cap">越高越便宜，和评分是两回事</span>' +
+        "</div>" +
+        '<div class="chips-scroll hfee-row">' +
+          chipRow("pickMinValue", [0, 12, 16, 18], p.minValue, function (v) {
+            return v ? "≥" + v + " 分" : "不限";
+          }) + "</div>" +
+        '<div class="pk-more" data-act="pickMore">' +
+          (moreOpen ? "收起筛选" : "股息率 / 评分 / 行业") +
+          '<i class="pk-more-i">' + (moreOpen ? "⌃" : "⌄") + "</i></div>" +
+        advanced +
       "</div>";
 
     var body;
@@ -2421,18 +2437,29 @@
         var y = x.current_yield != null ? (Number(x.current_yield) * 100).toFixed(2) + "%" : "—";
         var vLabel = x.value_label || pickValueLabel(x.value_score, x.value_premium);
         var tone = /便宜/.test(vLabel) ? "cheap" : /偏贵/.test(vLabel) ? "rich" : "fair";
-        var vScore = x.value_score != null ? Number(x.value_score).toFixed(0) : "—";
+        var vNum = x.value_score != null ? Number(x.value_score) : null;
+        var vScore = vNum != null ? vNum.toFixed(0) : "—";
         var pr = x.value_pr != null ? Number(x.value_pr).toFixed(2) : "—";
-        var t2 = x.total_score2 != null ? Number(x.total_score2).toFixed(0) : "—";
+        /* value_pct=100 表示全池最便宜，换算成"前 N%"时最少是前 1%，
+           以前直接 100-100 会印出「前 0%」，看起来像 bug。 */
+        var pct = x.value_pct != null ? Number(x.value_pct) : null;
+        var pctHtml = pct != null && pct >= 90
+          ? '<span class="pk-pct">前 ' + Math.max(1, Math.round(100 - pct)) + "%</span>"
+          : "";
         return '<div class="pk-row" data-act="openStock" data-code="' + esc(x.ts_code) + '">' +
+          '<i class="pk-stripe ' + tone + '"></i>' +
           '<div class="pk-l">' +
-            '<div class="pk-nm">' + esc(x.name || x.ts_code) + "</div>" +
-            '<div class="pk-sub">' + esc(x.ts_code) +
-              (x.industry ? " · " + esc(String(x.industry).slice(0, 8)) : "") + "</div>" +
-            '<div class="pk-tags">' +
+            '<div class="pk-top">' +
+              '<span class="pk-nm">' + esc(x.name || x.ts_code) + "</span>" +
               '<em class="pk-badge ' + tone + '">' + esc(vLabel) + "</em>" +
-              '<span class="pk-meta">便宜度 ' + vScore + " · 市赚率 " + pr +
-                " · 股息 " + y + " · 综合 " + t2 + "</span>" +
+              pctHtml +
+            "</div>" +
+            '<div class="pk-sub">' + esc(x.ts_code) +
+              (x.industry ? " · " + esc(String(x.industry).replace(/^[A-Z]\s+/, "").slice(0, 10)) : "") + "</div>" +
+            '<div class="pk-meta">' +
+              '<span class="pk-cell">便宜度<b>' + vScore + "</b></span>" +
+              '<span class="pk-cell">市赚率<b>' + pr + "</b></span>" +
+              '<span class="pk-cell">股息<b>' + y + "</b></span>" +
             "</div>" +
           "</div>" +
           '<div class="pk-r">' +
@@ -2441,16 +2468,19 @@
                 (chg != null
                   ? '<div class="pk-chg ' + (chg > 0 ? "up" : chg < 0 ? "down" : "") + '">' +
                     (chg > 0 ? "+" : "") + chg.toFixed(2) + "%</div>"
-                  : "")
-              : '<div class="pk-price muted">—</div><div class="pk-chg">价</div>') +
+                  : '<div class="pk-chg">—</div>')
+              : '<div class="pk-price muted">—</div><div class="pk-chg">待报价</div>') +
           "</div>" +
         "</div>";
       }).join("");
 
-      body = '<div class="card ov-card">' +
-        '<div class="card-title">共 ' + (p.res.total != null ? p.res.total : items.length) + " 只符合" +
-          '<span class="kl-cap">' + (p.quoteAt ? "价格 " + esc(String(p.quoteAt).replace("T", " ").slice(0, 16)) : "价格加载中…") +
-          " · 股息率按评分日收盘</span></div>" +
+      var totalN = p.res.total != null ? p.res.total : items.length;
+      body = '<div class="card ov-card pk-list-card">' +
+        '<div class="pk-list-hd">' +
+          '<div class="pk-list-n"><b>共 ' + totalN + " 只</b>" +
+            '<span>' + (p.quoteAt ? "价格 " + esc(String(p.quoteAt).replace("T", " ").slice(0, 16)) : "价格加载中…") + "</span></div>" +
+          '<span class="pk-list-note">股息率按评分日收盘</span>' +
+        "</div>" +
         (rows || '<div class="sd-note">这个门槛下没有股票，放宽一点再试。</div>') +
       "</div>" +
       '<button class="btn-ghost sd-del-hold" data-act="pickReload" ' +
@@ -2463,6 +2493,7 @@
     return head + form + body;
   }
 
+  
   /* ================= 视图：分红复投测算 =================
      后端 /portfolio/simulate 已经是完整的三情景蒙特卡洛：给定每年投多少、投几年、
      目标生活费，返回悲观/中性/乐观三条资产与分红曲线，以及"哪一年能覆盖"。
@@ -7686,6 +7717,7 @@
     }
     else if (act === "cpMode") { compoundState().mode = el.getAttribute("data-v") || "month"; render(); }
     else if (act === "pickReload") pickLoad();
+    else if (act === "pickMore") { var _pk = pickState(); _pk.more = !_pk.more; render(); }
     else if (act === "pickSort") { pickState().sort = el.getAttribute("data-v") || "score"; pickLoad(); }
     else if (act === "pickMinScore") { pickState().minScore = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
     else if (act === "pickMinYield") { pickState().minYield = Number(el.getAttribute("data-v")) || 0; pickLoad(); }
