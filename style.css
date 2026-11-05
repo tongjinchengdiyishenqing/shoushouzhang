@@ -4120,3 +4120,45 @@ html, body { overscroll-behavior-y: contain; }
   line-height: 1.65;
   color: var(--muted);
 }
+
+/* ---------- 吃修复：银行 / 非银 两条线 ----------
+   不是三个排序方式，是三种不同的生意，每张卡自己写清门槛和回测胜率 ——
+   用户换线的时候得知道"我现在看的这批，历史胜率是多少"。 */
+.pk-lines {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 2px 18px 14px;
+}
+.pk-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  text-align: center;
+  cursor: pointer;
+  min-width: 0;
+}
+.pk-line b {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.pk-line i {
+  font-style: normal;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.pk-line.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pk-line.on b { color: #fff; }
+.pk-line.on i { color: rgba(255, 255, 255, 0.82); }
+.pk-line:active { transform: scale(0.98); }
